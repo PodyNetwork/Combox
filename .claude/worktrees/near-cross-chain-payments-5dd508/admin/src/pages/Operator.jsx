@@ -71,7 +71,7 @@ export default function Operator() {
         )}
       </PageHead>
       <p className="reveal -mt-2 mb-6 max-w-2xl text-sm text-mute">
-        Every company on this ForeMan. Suspending stops a company's API, jobs board, background jobs, and payouts; its data is kept.
+        Every company on this Combox. Suspending stops a company's API, jobs board, background jobs, and payouts; its data is kept.
       </p>
       <ErrorNote error={error} />
       {!data && !error && <Loading rows={5} />}

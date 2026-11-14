@@ -7,8 +7,8 @@ Read 00_shared_context.md first. Its rules apply throughout this milestone.
 - Default to NEAR testnet. Use mainnet only when NEAR_NETWORK=mainnet is set explicitly.
 - OpenBao holds one hot treasury key. Create it with the transit engine as an ed25519 key that is not exportable and cannot be deleted. The private key never leaves OpenBao.
 - The treasury address is the NEAR implicit account for the key's public key: the lowercase hex encoding of the 32-byte public key. The owner creates the key once. No agent creates keys.
-- Keep only the working balance in the treasury, at most one month's budget under the cap. The owner tops it up from a cold wallet that ForeMan does not control.
-- OpenBao access policies: axom-signer may call sign on the treasury key and read its public key, and nothing else. Only the owner's admin identity can create, rotate, or disable keys. ForeMan never uses that identity.
+- Keep only the working balance in the treasury, at most one month's budget under the cap. The owner tops it up from a cold wallet that Combox does not control.
+- OpenBao access policies: axom-signer may call sign on the treasury key and read its public key, and nothing else. Only the owner's admin identity can create, rotate, or disable keys. Combox never uses that identity.
 - Enable OpenBao's audit log, so every sign request is recorded.
 - After a VPS reboot, OpenBao stays sealed until the owner unseals it, and payouts pause in the meantime. That is the intended failure mode.
 - Before each sign request, axom-signer checks the recipient against verified addresses and the amount against the authorization, and rejects any mismatch.

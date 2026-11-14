@@ -1,5 +1,5 @@
 // Subscription, paid in NEAR: open an invoice at the current rate, send the
-// NEAR from any wallet, then submit the transaction so ForeMan can check it on
+// NEAR from any wallet, then submit the transaction so Combox can check it on
 // chain. Nothing typed here is trusted; the transaction itself is checked.
 import { useCallback, useEffect, useState } from "react";
 import { platform } from "../api.js";
@@ -268,7 +268,7 @@ function PayDialog({ price, invoice, onClose, onPaid }) {
                 )}
                 {on && n === 2 && (
                   <form onSubmit={verify} className="space-y-4">
-                    <p className="text-sm text-mute">Paste the transaction hash from your wallet and the account you sent from. ForeMan checks the transaction on NEAR.</p>
+                    <p className="text-sm text-mute">Paste the transaction hash from your wallet and the account you sent from. Combox checks the transaction on NEAR.</p>
                     <Input label="Transaction hash" value={tx} onChange={setTx} autoComplete="off" spellCheck={false} className="[&_input]:font-mono" autoFocus />
                     <Input label="Sent from (NEAR account)" placeholder="yourname.testnet" value={payer} onChange={setPayer} autoComplete="off" spellCheck={false} />
                     <div className="flex flex-wrap items-center gap-2">

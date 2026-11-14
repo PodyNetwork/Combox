@@ -17,7 +17,7 @@ Run the agent as a Coolify service beside the LiveKit server. Speech-to-text, te
 - Opens with the AI disclosure and asks for recording consent. Proceeds only with consent, and stores the consent record with the meeting.
 - Speaks through TTS, listens through STT, asks the prepared questions, and asks follow-ups.
 - Records the transcript and writes a summary.
-- Posts the summary to an ForeMan callback.
+- Posts the summary to an Combox callback.
 - Must not make offers, promise pay, or commit to terms. Those happen only through the policy flow in milestones 7 and 8.
 - Scores candidates on job-related criteria only, using a rubric. Store the rubric and score with the meeting.
 

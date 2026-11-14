@@ -33,7 +33,7 @@ export function Wordmark() {
         <rect x="5.5" y="18.5" width="21" height="3" rx="1.5" fill="#07070a" />
         <rect x="14.6" y="10.2" width="2.8" height="6.4" rx="1.4" fill="#d4ff3a" />
       </svg>
-      ForeMan
+      Combox
     </span>
   );
 }

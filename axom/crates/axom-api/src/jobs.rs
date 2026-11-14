@@ -1,4 +1,4 @@
-//! Public jobs board (ForeMan Jobs): open jobs and applications. No sign-in;
+//! Public jobs board (Combox Jobs): open jobs and applications. No sign-in;
 //! everything submitted is untrusted data (see `axom_hr::board`).
 
 use std::sync::Mutex;

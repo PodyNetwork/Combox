@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# ForeMan judge mode: one command, no VPS. Starts Postgres (local container),
+# Combox judge mode: one command, no VPS. Starts Postgres (local container),
 # OpenBao (dev mode, judge mode only), the signer, the admin API, and runs
 # the seeded scenario with the meeting agent's interview logic. External
 # services are mocks; NEAR is real testnet.
@@ -55,7 +55,7 @@ stop_leftovers() {
     [[ "$cmd" == *"$ROOT"* ]] || continue
     parent="$(ps -p "$(ps -p "$p" -o ppid= | tr -d ' ')" -o command= 2>/dev/null || true)"
     if [[ "$force" != force && "$parent" == *run.sh* ]]; then
-      fail "ForeMan judge mode is already running in another terminal." \
+      fail "Combox judge mode is already running in another terminal." \
         "Stop it with Ctrl+C there, or run: ./scripts/stop"
     fi
     kill "$p" 2>/dev/null && echo "stopped a leftover from an earlier run: ${cmd:0:80}"
@@ -101,7 +101,7 @@ fi
 
 stop_leftovers
 port_free 18200 OpenBao; port_free 18090 axom-signer
-[[ "$SERVE" == 1 ]] && port_free 8080 "ForeMan API"
+[[ "$SERVE" == 1 ]] && port_free 8080 "Combox API"
 rm -f "$OUT/judge-admin.env"   # rewritten once this run's API is about to serve
 
 # --- 1. Postgres -------------------------------------------------------------
@@ -121,7 +121,7 @@ else
 fi
 
 # --- 2. Build ----------------------------------------------------------------
-say "[2/7] Building ForeMan (first build takes a few minutes)"
+say "[2/7] Building Combox (first build takes a few minutes)"
 (cd "$ROOT/axom" && cargo build -q -p axom-bin -p axom-signer && cargo build -q -p axom-signer --example testnet_fund)
 AXOM="$ROOT/axom/target/debug/axom"
 SIGNER="$ROOT/axom/target/debug/axom-signer"
@@ -208,7 +208,7 @@ export AXOM_JUDGE_ADMIN_ID="00000000-0000-4000-8000-00000000a11e"
 (cd "$ROOT" && "$AXOM" demo)
 
 if [[ "$SERVE" == 1 ]]; then
-  say "ForeMan API on http://127.0.0.1:8080 (judge mode). Approve the held payout with:"
+  say "Combox API on http://127.0.0.1:8080 (judge mode). Approve the held payout with:"
   echo "    ./judge/approve.sh"
   printf 'JUDGE_JWT_SECRET=%s\nAXOM_JUDGE_ADMIN_ID=%s\n' "$JUDGE_JWT_SECRET" "$AXOM_JUDGE_ADMIN_ID" > "$OUT/judge-admin.env"; chmod 600 "$OUT/judge-admin.env"
   echo "Press Ctrl-C to stop everything."

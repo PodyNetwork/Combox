@@ -1,6 +1,6 @@
 # Coolify resource: self-hosted DocuSeal. After first start, create the
 # owner-approved templates (freelancer contract, termination notice, W-9,
-# W-8BEN) and set DOCUSEAL_TEMPLATES=name=id,... for ForeMan.
+# W-8BEN) and set DOCUSEAL_TEMPLATES=name=id,... for Combox.
 services:
   docuseal:
     image: docuseal/docuseal:3.3.1

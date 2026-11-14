@@ -19,7 +19,7 @@ export default function Privacy() {
 
   return (
     <>
-      <PageHero eyebrow="Privacy and data" lines={["What ForeMan keeps,", "and for how long."]} lead="A plain description of how ForeMan, and the AI that runs each company on it, handles the data of candidates, workers and the companies themselves." />
+      <PageHero eyebrow="Privacy and data" lines={["What Combox keeps,", "and for how long."]} lead="A plain description of how Combox, and the AI that runs each company on it, handles the data of candidates, workers and the companies themselves." />
       <section className="section-tight" style={{ paddingTop: 0 }}>
         <div className="wrap with-toc">
           <nav className="toc" aria-label="Sections">
@@ -30,14 +30,14 @@ export default function Privacy() {
           <article className="prose">
             <div className="note" style={{ marginBottom: 40 }}>
               <Info aria-hidden="true" />
-              <span>This page describes what the software does. Each company that runs ForeMan decides how it uses it and is responsible for the personal data it collects. Check that company's own privacy notice, which you're shown when you apply.</span>
+              <span>This page describes what the software does. Each company that runs Combox decides how it uses it and is responsible for the personal data it collects. Check that company's own privacy notice, which you're shown when you apply.</span>
             </div>
 
             <h2 id="who">Who's responsible</h2>
-            <p>When you apply for a job, interview or work for a company that uses ForeMan, <strong>that company</strong> is responsible for your data. On the hosted platform, each company's data lives in <strong>its own database</strong>, separate from every other company's.</p>
+            <p>When you apply for a job, interview or work for a company that uses Combox, <strong>that company</strong> is responsible for your data. On the hosted platform, each company's data lives in <strong>its own database</strong>, separate from every other company's.</p>
 
             <h2 id="candidates">Candidates</h2>
-            <p>When you apply on a company's jobs board, ForeMan stores what you send: your name, email, skills, your CV (PDF), and an optional portfolio link and note. You must accept a short privacy notice to apply, and each email can apply once per job.</p>
+            <p>When you apply on a company's jobs board, Combox stores what you send: your name, email, skills, your CV (PDF), and an optional portfolio link and note. You must accept a short privacy notice to apply, and each email can apply once per job.</p>
             <p>Your application is used to shortlist candidates by skill match and, if you're shortlisted, to invite you to an interview.</p>
             <p><strong>If you're not hired</strong>, your application, interview transcript and contact details are redacted after <strong>{POLICY.retentionDays} days</strong>, or sooner if the company has set a shorter period or you ask. Rubric scores are kept <strong>without your identity</strong> so the company can audit its hiring for bias.</p>
 
@@ -51,17 +51,17 @@ export default function Privacy() {
             </ul>
 
             <h2 id="workers">Workers and freelancers</h2>
-            <p>For people who are hired, ForeMan keeps what's needed to work and be paid: the signed contract, task briefs and deliverables, performance records, and a tax form (W-9 or W-8BEN) handled through the company's document-signing service.</p>
+            <p>For people who are hired, Combox keeps what's needed to work and be paid: the signed contract, task briefs and deliverables, performance records, and a tax form (W-9 or W-8BEN) handled through the company's document-signing service.</p>
             <p>Pay goes to a <strong>NEAR address you've proven you own</strong>. NEAR is a public blockchain, so the transfer itself (addresses, amount, time) is publicly visible, as with any on-chain payment.</p>
             <p>Performance is measured from results (tasks completed, deadlines met, cost and whether work passed its checks), not from monitoring you.</p>
 
             <h2 id="companies">Companies and their keys</h2>
             <p>Integration keys a company adds (email, contracts, CRM, AI models, tools) are <strong>encrypted at rest</strong> and never shown again; the dashboard only shows the last four characters.</p>
-            <p>A company's NEAR treasury key is generated inside OpenBao and <strong>cannot be exported</strong>. ForeMan never holds customer money.</p>
-            <p>Subscription payments are made on NEAR; ForeMan stores the transaction hash and the details it verified on chain. No card details are collected.</p>
+            <p>A company's NEAR treasury key is generated inside OpenBao and <strong>cannot be exported</strong>. Combox never holds customer money.</p>
+            <p>Subscription payments are made on NEAR; Combox stores the transaction hash and the details it verified on chain. No card details are collected.</p>
 
             <h2 id="ai">AI and automated decisions</h2>
-            <p>Companies on ForeMan are run by AI: it plans the work, drafts, shortlists, interviews, hires, reviews performance and summarises. Every decision with real effect goes through deterministic rules: hiring needs an approved contract template, firing needs a minimum record and repeated poor results, and any payout of $50 or more needs a human's approval. Text from candidates and tools is treated as data and can't instruct the system.</p>
+            <p>Companies on Combox are run by AI: it plans the work, drafts, shortlists, interviews, hires, reviews performance and summarises. Every decision with real effect goes through deterministic rules: hiring needs an approved contract template, firing needs a minimum record and repeated poor results, and any payout of $50 or more needs a human's approval. Text from candidates and tools is treated as data and can't instruct the system.</p>
             <p>Every decision is written to an audit log that can't be edited or deleted, so it can be reviewed later.</p>
 
             <h2 id="security">Security</h2>

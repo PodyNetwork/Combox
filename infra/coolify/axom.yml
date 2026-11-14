@@ -1,4 +1,4 @@
-# Coolify resource: ForeMan (API + HR loops), the signer, LiveKit (video
+# Coolify resource: Combox (API + HR loops), the signer, LiveKit (video
 # meetings, with TURN), the meeting agent, the admin dashboard, and the
 # participant UI. Set every variable in
 # Coolify's environment editor (see .env.example); never commit them.
@@ -25,7 +25,7 @@ services:
       AXOM_MULTI_TENANT: ${AXOM_MULTI_TENANT:-false}
       AXOM_SECRETS_KEY: ${AXOM_SECRETS_KEY}
       AXOM_BILLING_ACCOUNT: ${AXOM_BILLING_ACCOUNT}
-      AXOM_PLAN_NAME: ${AXOM_PLAN_NAME:-ForeMan}
+      AXOM_PLAN_NAME: ${AXOM_PLAN_NAME:-Combox}
       AXOM_PLAN_PRICE_USD: ${AXOM_PLAN_PRICE_USD:-49}
       AXOM_TRIAL_DAYS: ${AXOM_TRIAL_DAYS:-14}
       OPENBAO_ADDR: ${OPENBAO_ADDR}

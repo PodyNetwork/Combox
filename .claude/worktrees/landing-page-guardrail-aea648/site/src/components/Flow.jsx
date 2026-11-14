@@ -23,8 +23,8 @@ const LANES = [
     label: "Hiring",
     nodes: [
       { id: "req", icon: Briefcase, name: "Hiring request", info: "Opened by the AI when no current worker can take a task, for example logo design." },
-      { id: "jobs", icon: ScrollText, name: "ForeMan Jobs", info: "The company's own public jobs board at /jobs, posted to by the AI. Candidates apply with a PDF CV, no account needed. Shortlisted by skill match. (Or Upwork, paid through Upwork.)" },
-      { id: "interview", icon: Video, name: "AI interview", info: "Video interview over LiveKit, bundled with ForeMan. Disclosure and recording consent first, job questions, no talk of pay. Transcript, summary and rubric scores are stored." },
+      { id: "jobs", icon: ScrollText, name: "Combox Jobs", info: "The company's own public jobs board at /jobs, posted to by the AI. Candidates apply with a PDF CV, no account needed. Shortlisted by skill match. (Or Upwork, paid through Upwork.)" },
+      { id: "interview", icon: Video, name: "AI interview", info: "Video interview over LiveKit, bundled with Combox. Disclosure and recording consent first, job questions, no talk of pay. Transcript, summary and rubric scores are stored." },
       { id: "contract", icon: FileSignature, name: "DocuSeal contract", info: "The AI makes the hire, always with one of your pre-approved templates. It never writes contract terms. The board is notified when a contract goes out." },
     ],
   },

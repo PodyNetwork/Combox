@@ -1,7 +1,7 @@
 //! Platform HTTP API and per-company routing.
 //!
 //! - `/platform/...`: sign-up, companies, members, integrations, billing.
-//! - `/t/<company>/...`: that company's own ForeMan API (dashboard, approvals,
+//! - `/t/<company>/...`: that company's own Combox API (dashboard, approvals,
 //!   jobs board, meetings, MCP), served against its own database. The path
 //!   prefix is stripped and the request handed to a router built for that
 //!   company, so every existing endpoint works per company unchanged.
@@ -587,7 +587,7 @@ struct ObjectiveBody {
     description: String,
 }
 
-/// Set the company's first plan: ForeMan proposes departments, roles, AI
+/// Set the company's first plan: Combox proposes departments, roles, AI
 /// workers, and tasks from the goal and objectives (policy-checked).
 async fn set_plan(State(ps): S, headers: HeaderMap, Path(slug): Path<String>, Json(b): Json<PlanBody>) -> Response {
     let (t, s, _) = member!(ps, headers, slug);

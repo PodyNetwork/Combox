@@ -106,7 +106,7 @@ async fn contacts_by_exact_email_and_notes_appended() {
     assert!(notes.contains("Strong portfolio.") && notes.contains("Second meeting."), "{notes}");
     assert!(notes.contains("Deal: Brand refresh (USD 1200.00)"), "{notes}");
     assert!(notes.find("Strong portfolio.").unwrap() < notes.find("Second meeting.").unwrap(), "in order");
-    assert_eq!(notes.matches("· ForeMan]").count(), 3, "each entry dated");
+    assert_eq!(notes.matches("· Combox]").count(), 3, "each entry dated");
 
     // An extra address of an existing contact finds that contact.
     d.contacts.lock().unwrap().push(json!({ "id": "c9", "email": "bo@example.com", "emails": ["bo@work.example"], "name": "Bo", "notes": "" }));

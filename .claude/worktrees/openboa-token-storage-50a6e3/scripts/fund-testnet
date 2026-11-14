@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Put testnet NEAR in your ForeMan's treasury, to try payouts out.
+# Put testnet NEAR in your Combox's treasury, to try payouts out.
 #
 #   ./scripts/fund-testnet         send 2 testnet NEAR
 #   ./scripts/fund-testnet 5       send up to 5 (the most it sends)
@@ -9,7 +9,7 @@
 # exists after its first deposit. This sends from a funding account that
 # NEAR's testnet helper creates and funds. The account is kept in
 # secrets/testnet_funder and reused until it runs low, then replaced.
-# Testnet only; ForeMan must be running with payouts on (./scripts/start).
+# Testnet only; Combox must be running with payouts on (./scripts/start).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -23,7 +23,7 @@ esac
 [[ "$(get_env NEAR_NETWORK)" != mainnet ]] || fail "NEAR_NETWORK=mainnet: this only sends testnet NEAR." "Fund a mainnet treasury from your own wallet."
 [[ -n "$(get_env OPENBAO_TOKEN)" ]] || fail "Payouts aren't set up yet." "Run ./scripts/start (it sets them up), then this again."
 [[ -n "$(docker compose --profile payouts ps -q axom-signer 2>/dev/null)" ]] \
-  || fail "The payouts signer isn't running." "Start ForeMan with ./scripts/start, then run this again."
+  || fail "The payouts signer isn't running." "Start Combox with ./scripts/start, then run this again."
 
 # A one-off container from the current code (--build: a no-op once built),
 # on the stack's network, so it can ask the signer for the treasury address.

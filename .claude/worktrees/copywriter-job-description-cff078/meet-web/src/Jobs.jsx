@@ -1,5 +1,5 @@
-// ForeMan Jobs: the public jobs board. /jobs lists open roles, /jobs/<id>
-// shows one with the application form. Applications go to the ForeMan API
+// Combox Jobs: the public jobs board. /jobs lists open roles, /jobs/<id>
+// shows one with the application form. Applications go to the Combox API
 // (POST /jobs/<id>/apply); shortlisted applicants get an email invite to an
 // AI interview. Hires are paid in NEAR after address and tax-form checks.
 import { useEffect, useState } from "react";
@@ -13,7 +13,7 @@ async function getJson(url, opts) {
   try {
     r = await fetch(url, opts);
   } catch {
-    throw new Error("We couldn't reach the ForeMan server. Check your connection and try again.");
+    throw new Error("We couldn't reach the Combox server. Check your connection and try again.");
   }
   const body = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(body.error || `Request failed (HTTP ${r.status})`);
@@ -25,7 +25,7 @@ export default function Jobs() {
   return (
     <div className="jobs">
       <header className="jobs-head">
-        <a href={`${PREFIX}/jobs`} className="brand" aria-label="ForeMan Jobs"><Wordmark /><span className="eyebrow">Jobs</span></a>
+        <a href={`${PREFIX}/jobs`} className="brand" aria-label="Combox Jobs"><Wordmark /><span className="eyebrow">Jobs</span></a>
         <span>Freelance work, paid in NEAR</span>
       </header>
       {id ? <JobPage id={id} /> : <JobList />}
@@ -170,7 +170,7 @@ function ApplyForm({ jobId, skills }) {
       <label className="check">
         <input type="checkbox" checked={form.accept_privacy} onChange={set("accept_privacy")} />
         <span>
-          I agree that ForeMan stores my application and CV, may invite me by email to an AI-led video interview (recorded only with my consent),
+          I agree that Combox stores my application and CV, may invite me by email to an AI-led video interview (recorded only with my consent),
           and deletes my data after 180 days if I'm not hired. I can ask for deletion sooner.
         </span>
       </label>

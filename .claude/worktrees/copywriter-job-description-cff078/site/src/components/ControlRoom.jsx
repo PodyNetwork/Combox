@@ -3,7 +3,7 @@ import { Ban, Bot, CircleCheck, FileSignature, Hourglass, OctagonAlert, Send, Us
 import { useInterval, useOnScreen, usd } from "../lib/hooks.js";
 import { Orb } from "./ui.jsx";
 
-// A scripted day in an autonomous company. Every line is something ForeMan really
+// A scripted day in an autonomous company. Every line is something Combox really
 // does; the amounts match the judge-mode demo run.
 const SCRIPT = [
   { tone: "violet", icon: Bot, text: <><b>Task routed</b> · Build the MVP web app → Software Engineer Agent 1</> },
@@ -93,7 +93,7 @@ export default function ControlRoom() {
       <div className="panel cr-window">
         <div className="cr-bar">
           <div className="lights" aria-hidden="true"><i /><i /><i /></div>
-          <div className="url">foreman · control room</div>
+          <div className="url">combox · control room</div>
           <span className={`badge ${killed ? "badge-ember" : "badge-lime"}`}>{killed ? "Halted" : "Autonomous"}</span>
         </div>
         {killed && (

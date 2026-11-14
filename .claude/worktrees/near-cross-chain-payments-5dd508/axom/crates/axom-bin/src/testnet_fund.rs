@@ -132,7 +132,7 @@ pub async fn run(args: Vec<String>) -> anyhow::Result<()> {
         Some(r) => r,
         None => {
             let f = Funder {
-                account: format!("foreman-fund-{}.testnet", hex::encode(rand::random::<[u8; 4]>())),
+                account: format!("combox-fund-{}.testnet", hex::encode(rand::random::<[u8; 4]>())),
                 key: SigningKey::from_bytes(&rand::random::<[u8; 32]>()),
             };
             if let Some(path) = &funder_file {
@@ -235,7 +235,7 @@ mod tests {
         let path = dir.join("testnet_funder");
         assert!(Funder::load(&path).unwrap().is_none());
 
-        let f = Funder { account: "foreman-fund-abcd1234.testnet".into(), key: SigningKey::from_bytes(&[7u8; 32]) };
+        let f = Funder { account: "combox-fund-abcd1234.testnet".into(), key: SigningKey::from_bytes(&[7u8; 32]) };
         f.save(&path).unwrap();
         let back = Funder::load(&path).unwrap().unwrap();
         assert_eq!(back.account, f.account);

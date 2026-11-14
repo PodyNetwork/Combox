@@ -28,7 +28,7 @@ pub const CATALOG: &[Integration] = &[
     Integration {
         id: "email",
         name: "Email (SMTP)",
-        description: "Sends interview invites, contract notices, and your notifications from your own address. Without it, ForeMan's shared sender is used.",
+        description: "Sends interview invites, contract notices, and your notifications from your own address. Without it, Combox's shared sender is used.",
         fields: &[
             f("SMTP_HOST", "SMTP host", false, "smtp.example.com"),
             f("SMTP_PORT", "Port", false, "587"),
@@ -56,7 +56,7 @@ pub const CATALOG: &[Integration] = &[
     Integration {
         id: "hiring",
         name: "Hiring marketplace",
-        description: "Where human jobs are posted: your ForeMan Jobs board (default; hires paid in NEAR) or Upwork (hires paid through Upwork only).",
+        description: "Where human jobs are posted: your Combox Jobs board (default; hires paid in NEAR) or Upwork (hires paid through Upwork only).",
         fields: &[
             f("AXOM_MARKETPLACE", "Marketplace (board or upwork)", false, "board"),
             f("UPWORK_MCP_URL", "Upwork MCP URL", false, ""),

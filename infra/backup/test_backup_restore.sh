@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tested backup and restore for both stateful services ForeMan owns.
+# Tested backup and restore for both stateful services Combox owns.
 #   SOURCE_DATABASE_URL=postgres://... ADMIN_DATABASE_URL=postgres://.../postgres BAO=/path/to/bao ./test_backup_restore.sh
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"

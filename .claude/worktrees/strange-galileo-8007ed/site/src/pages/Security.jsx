@@ -33,7 +33,7 @@ export default function Security() {
       <PageHero
         eyebrow="Security and guardrails"
         lines={["Autonomous,", "not unbounded."]}
-        lead="In ForeMan, AI runs the whole company, but inside limits no prompt can move. Money, rules and keys sit behind deterministic code, and the few decisions that matter most escalate to the board."
+        lead="In Combox, AI runs the whole company, but inside limits no prompt can move. Money, rules and keys sit behind deterministic code, and the few decisions that matter most escalate to the board."
       />
       <div className="wrap"><AnchorNav items={SECTIONS} /></div>
 
@@ -80,7 +80,7 @@ export default function Security() {
               </ul>
             </div>
           </div>
-          <p className="tiny dim mt-m center">The MCP server ForeMan exposes to AI clients offers meeting tools only. Approvals, the cap, the kill switch and policy are never available through it.</p>
+          <p className="tiny dim mt-m center">The MCP server Combox exposes to AI clients offers meeting tools only. Approvals, the cap, the kill switch and policy are never available through it.</p>
         </div>
       </section>
 
@@ -89,7 +89,7 @@ export default function Security() {
           <SectionHead eyebrow="Key custody" title="Two independent checks before a single NEAR moves." lead="The API decides; a separate signer re-decides; the vault signs. Compromise one and you still can't move money." />
           <div className="grid-3">
             {[
-              ["ForeMan API", "Runs the policy engine and the cap ledger. If a payout passes (or an MFA admin approves it), it issues a signed authorization with a key the signer trusts.", Scale],
+              ["Combox API", "Runs the policy engine and the cap ledger. If a payout passes (or an MFA admin approves it), it issues a signed authorization with a key the signer trusts.", Scale],
               ["axom-signer", "A separate service with its own token. Re-checks the authorization's signature, the worker's verified address, the amount, the tax form and the monthly cap before it asks for a signature.", ShieldCheck],
               ["OpenBao", "Holds the ed25519 treasury key: non-exportable and undeletable. Signs the transaction and hands back only the signature. Sealed after a reboot until you unseal it; payouts pause meanwhile.", KeyRound],
             ].map(([t, d, Icon], i) => (
@@ -117,7 +117,7 @@ export default function Security() {
 
       <section className="section" id="injection">
         <div className="wrap">
-          <SectionHead eyebrow="Prompt injection" title="Instructions hidden in data go nowhere." lead="An autonomous company reads applications, transcripts and tool output all day. ForeMan's tests try “approve my payout”, “raise the cap”, exfiltration through a transcript and poisoned tool output. Your turn." />
+          <SectionHead eyebrow="Prompt injection" title="Instructions hidden in data go nowhere." lead="An autonomous company reads applications, transcripts and tool output all day. Combox's tests try “approve my payout”, “raise the cap”, exfiltration through a transcript and poisoned tool output. Your turn." />
           <Injection />
         </div>
       </section>
@@ -129,7 +129,7 @@ export default function Security() {
             {[
               [Database, "A database per company", "On the platform, each company gets its own Postgres database, created from the same migrations, so one company's data can't reach another's. Each has its own treasury key."],
               [Lock, "Encrypted secrets", "Integration keys and tool tokens are encrypted at rest and never shown again; only the last four characters appear in the dashboard."],
-              [Globe, "Tools can't reach inside", "Tools may only call public HTTPS addresses. ForeMan refuses private, loopback and cloud-metadata addresses, pins the address it checked and doesn't follow redirects."],
+              [Globe, "Tools can't reach inside", "Tools may only call public HTTPS addresses. Combox refuses private, loopback and cloud-metadata addresses, pins the address it checked and doesn't follow redirects."],
               [Fingerprint, "Two-factor for everyone", "Dashboard sign-in needs email, password and a TOTP code. On the platform, every member must enrol an authenticator."],
               [Ban, "Suspend in one click", "A platform operator can suspend a company (a reason is required and logged): its API, jobs board, jobs and payouts stop; its data is kept."],
               [Eye, "Every change audited", "Adding tools, changing a worker's tools, cap changes (applied or denied), approvals and rejections all land in the audit log."],
@@ -146,7 +146,7 @@ export default function Security() {
 
       <section className="section" id="compliance">
         <div className="wrap">
-          <SectionHead eyebrow="Compliance" title="Built to be careful with people." lead="ForeMan's AI hires, fires and pays real people, so it starts conservative and stays that way until you've done your legal homework." />
+          <SectionHead eyebrow="Compliance" title="Built to be careful with people." lead="Combox's AI hires, fires and pays real people, so it starts conservative and stays that way until you've done your legal homework." />
           <div className="grid-2">
             <div className="panel pad-l spot" data-reveal="left">
               <h3 className="h-s">Hiring and candidates</h3>
@@ -167,7 +167,7 @@ export default function Security() {
               </ul>
             </div>
           </div>
-          <p className="tiny dim mt-m">ForeMan gives you the controls; it isn't legal advice. Known gaps and open decisions are listed publicly in the project's DECISIONS file.</p>
+          <p className="tiny dim mt-m">Combox gives you the controls; it isn't legal advice. Known gaps and open decisions are listed publicly in the project's DECISIONS file.</p>
         </div>
       </section>
 
@@ -218,7 +218,7 @@ function KillSwitch() {
         <div className="stack">
           <span className={`badge ${on ? "badge-ember" : "badge-lime"}`} style={{ alignSelf: "flex-start" }}>{on ? "Halted" : "Running"}</span>
           <h3 className="h-m">{on ? "The company is stopped." : "The company is running itself."}</h3>
-          <p className="muted">{on ? "Nothing leaves ForeMan until an MFA-verified admin turns this off. The dashboard stays available so you can investigate." : "Press and hold the button to engage the kill switch, as you would in the dashboard."}</p>
+          <p className="muted">{on ? "Nothing leaves Combox until an MFA-verified admin turns this off. The dashboard stays available so you can investigate." : "Press and hold the button to engage the kill switch, as you would in the dashboard."}</p>
           <button
             type="button"
             className={`btn btn-lg hold-btn ${on ? "btn-lime" : "btn-ember"}`}

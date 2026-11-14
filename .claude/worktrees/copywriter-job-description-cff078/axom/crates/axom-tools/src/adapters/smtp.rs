@@ -109,7 +109,7 @@ pub fn ics_invite(uid: &str, title: &str, start: chrono::DateTime<chrono::Utc>, 
     let end = start + chrono::Duration::minutes(minutes);
     let clean = |s: &str| s.replace(['\r', '\n'], " ").replace(',', "\\,").replace(';', "\\;");
     format!(
-        "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//ForeMan//Meetings//EN\r\nMETHOD:REQUEST\r\nBEGIN:VEVENT\r\nUID:{uid}\r\nDTSTAMP:{}\r\nDTSTART:{}\r\nDTEND:{}\r\nSUMMARY:{}\r\nORGANIZER:mailto:{}\r\nURL:{}\r\n{ALARMS}END:VEVENT\r\nEND:VCALENDAR\r\n",
+        "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//Combox//Meetings//EN\r\nMETHOD:REQUEST\r\nBEGIN:VEVENT\r\nUID:{uid}\r\nDTSTAMP:{}\r\nDTSTART:{}\r\nDTEND:{}\r\nSUMMARY:{}\r\nORGANIZER:mailto:{}\r\nURL:{}\r\n{ALARMS}END:VEVENT\r\nEND:VCALENDAR\r\n",
         fmt(chrono::Utc::now()), fmt(start), fmt(end), clean(title), organizer, url
     )
 }

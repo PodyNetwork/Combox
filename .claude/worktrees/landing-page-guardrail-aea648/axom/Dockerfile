@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1
-# ForeMan core and signer. Build from the repository root (BuildKit):
+# Combox core and signer. Build from the repository root (BuildKit):
 #   docker build -f axom/Dockerfile -t axom .
 # The same image runs `axom` (API + HR loops) or `axom-signer`.
 FROM rust:1.99.0-slim-bookworm AS build
@@ -10,7 +10,7 @@ WORKDIR /src
 COPY supabase supabase
 COPY axom axom
 # Cargo's downloads and compiled dependencies are kept between builds (cache
-# mounts), so changing ForeMan's code recompiles only ForeMan, not every crate.
+# mounts), so changing Combox's code recompiles only Combox, not every crate.
 # The target dir is a cache mount, so the binaries are copied out of it.
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \

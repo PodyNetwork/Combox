@@ -7,16 +7,16 @@ A declined (or twice unclear) consent ends the interview with no questions.
 
 The participant can end the call at any time by asking to (see
 `guards.wants_to_end`) or by leaving. Every way the call ends leaves a final
-outcome with ForeMan: results if consent was given, otherwise a recorded
+outcome with Combox: results if consent was given, otherwise a recorded
 "no consent" (`consent` event, granted false), so the meeting closes and its
 join links stop working.
 
 Questions: the agent writes them itself from the role (`plan_questions`).
 The owner's own questions, if any, are asked first. If no model is
-available or it fails, the owner's questions are used, else ForeMan's
+available or it fails, the owner's questions are used, else Combox's
 fallback questions. Every generated question passes `guards.safe_question`.
 
-Interviews are timed (`Job.max_duration_secs`: ForeMan sends 15 minutes; 10 if missing). In the
+Interviews are timed (`Job.max_duration_secs`: Combox sends 15 minutes; 10 if missing). In the
 last `WRAP_UP_SECS` no new question or follow-up is asked: the next answer
 closes the interview. At the limit, `time_up` closes it whatever the state.
 """
@@ -164,7 +164,7 @@ def write_questions(llm: LLM, job: Job, count: int) -> list[str]:
 
 def plan_questions(job: Job, llm: LLM | None) -> list[str]:
     """The interview's questions: the owner's own first, then ones the model
-    writes from the role. Without any, ForeMan's fallback questions."""
+    writes from the role. Without any, Combox's fallback questions."""
     own = list(job.questions)
     written: list[str] = []
     if job.generate_questions and llm is not None:
@@ -298,7 +298,7 @@ class Interview:
 
     def _no_consent(self, statement: str) -> None:
         """The call ended before consent was given: record that once, so
-        ForeMan closes the meeting (and its links) rather than waiting."""
+        Combox closes the meeting (and its links) rather than waiting."""
         if self.consent is not None:
             return
         self.consent = {"granted": False, "statement": statement, "at": _now()}

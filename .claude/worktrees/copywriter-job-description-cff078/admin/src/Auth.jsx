@@ -88,19 +88,19 @@ export function signOut() {
 
 export function Wordmark({ className = "" }) {
   return (
-    <a href="/" className={`inline-flex items-center gap-2.5 ${className}`} aria-label="ForeMan home">
+    <a href="/" className={`inline-flex items-center gap-2.5 ${className}`} aria-label="Combox home">
       <svg className="size-7 shrink-0" viewBox="0 0 32 32" aria-hidden="true">
         <circle cx="16" cy="16" r="15" fill="#d4ff3a" />
         <path d="M8.5 18.5a7.5 7.5 0 0 1 15 0z" fill="#07070a" />
         <rect x="5.5" y="18.5" width="21" height="3" rx="1.5" fill="#07070a" />
         <rect x="14.6" y="10.2" width="2.8" height="6.4" rx="1.4" fill="#d4ff3a" />
       </svg>
-      <span className="font-display text-xl font-semibold tracking-tight">ForeMan</span>
+      <span className="font-display text-xl font-semibold tracking-tight">Combox</span>
     </a>
   );
 }
 
-// Split screen: the orb punching through "FOREMAN" on one side, the form on the other.
+// Split screen: the orb punching through "COMBOX" on one side, the form on the other.
 export function AuthShell({ step, title, children }) {
   return (
     <div className="relative grid min-h-screen lg:grid-cols-[1.15fr_1fr]">
@@ -308,7 +308,7 @@ export function Mfa({ onDone }) {
         <div className="mb-6 space-y-3 rounded-2xl bg-white/5 p-4 ring-1 ring-white/10">
           <div className="flex items-center gap-4">
             <img alt="QR code for your authenticator app" src={enroll.totp.qr_code} className="w-32 rounded-xl bg-white p-2" />
-            <p className="text-sm text-mute">ForeMan controls payouts, so every account uses an authenticator app. Scan this with Google Authenticator, 1Password or Authy, then enter the 6-digit code.</p>
+            <p className="text-sm text-mute">Combox controls payouts, so every account uses an authenticator app. Scan this with Google Authenticator, 1Password or Authy, then enter the 6-digit code.</p>
           </div>
           <p className="text-xs text-dim">Can't scan? Enter this key: <span className="font-mono text-mute">{enroll.totp.secret}</span></p>
         </div>

@@ -1,4 +1,4 @@
-// Join by link: /join?t=<invite token>. The token is exchanged at the ForeMan
+// Join by link: /join?t=<invite token>. The token is exchanged at the Combox
 // API (POST /meetings/join) for a short-lived LiveKit participant token.
 // A lobby states up front that an AI interviewer is present and will ask for
 // consent before anything is recorded. In the room, live captions sit under
@@ -44,7 +44,7 @@ export default function Join() {
         fetchedAt.current = Date.now();
         setJoin(body);
       })
-      .catch((e) => live && setError(e instanceof TypeError ? "We couldn't reach the ForeMan server. Check your connection and try the link again." : e.message));
+      .catch((e) => live && setError(e instanceof TypeError ? "We couldn't reach the Combox server. Check your connection and try the link again." : e.message));
     return () => {
       live = false;
     };

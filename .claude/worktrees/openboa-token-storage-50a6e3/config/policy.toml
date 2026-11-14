@@ -1,4 +1,4 @@
-# ForeMan policy config. Versioned: bump `version` on every change and commit.
+# Combox policy config. Versioned: bump `version` on every change and commit.
 # Every policy decision records "<version>+<hash of effective config>".
 # Environment variables PAYOUT_APPROVAL_THRESHOLD_USD and MONTHLY_PAYOUT_CAP_USD
 # override the matching values below (the hash changes with them).

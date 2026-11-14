@@ -249,7 +249,7 @@ def test_time_up_before_consent_records_no_consent():
     iv.start()
     r = iv.time_up()
     assert r.say == TIME_UP_NO_CONSENT and r.done and iv.state == "timed_out"
-    # ForeMan hears that the call ended without consent, so it closes the meeting and its links.
+    # Combox hears that the call ended without consent, so it closes the meeting and its links.
     assert [(e["event"], e["granted"], e["statement"]) for e in events] == [("consent", False, "")]
     assert iv.time_up().say is None and len(events) == 1, "reported once"
     with pytest.raises(AssertionError):

@@ -1,4 +1,4 @@
-# Rust ForeMan: Build Prompts
+# Rust Combox: Build Prompts
 
 Run these files in order with an AI coding agent. Start every session with 00_shared_context.md, then add the one milestone file for that session.
 

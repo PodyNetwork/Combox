@@ -33,7 +33,7 @@ fn policy() -> PolicyConfig {
 }
 
 fn plan() -> PlanConfig {
-    PlanConfig { name: "ForeMan".into(), price_usd: dec!(49), trial_days: 14, pay_to: Some("axom-billing.testnet".into()), network: "testnet".into(), invoice_ttl_hours: 24 }
+    PlanConfig { name: "Combox".into(), price_usd: dec!(49), trial_days: 14, pay_to: Some("axom-billing.testnet".into()), network: "testnet".into(), invoice_ttl_hours: 24 }
 }
 
 async fn platform(pool: &PgPool) -> Arc<Platform> {
@@ -435,9 +435,9 @@ async fn invitation_emails_and_subscription_reminders(pool: PgPool) {
 async fn operator_sees_companies_and_suspends(pool: PgPool) {
     use axom_platform::operator::Operators;
     let p = platform(&pool).await;
-    let st = Arc::try_unwrap(state(p.clone(), Arc::new(NoPayments))).ok().unwrap().with_operators(Operators::new(["Ops@ForeMan.example"]));
+    let st = Arc::try_unwrap(state(p.clone(), Arc::new(NoPayments))).ok().unwrap().with_operators(Operators::new(["Ops@Combox.example"]));
     let app = http::router(Arc::new(st));
-    let (ada, ops) = (user("ada@acme.example"), user("ops@foreman.example"));
+    let (ada, ops) = (user("ada@acme.example"), user("ops@combox.example"));
     let (ta, to) = (jwt(&ada), jwt(&ops));
     call(&app, "POST", "/platform/companies", Some(&ta), Some(json!({ "name": "Acme Labs", "slug": "acme" }))).await;
 
@@ -469,7 +469,7 @@ async fn operator_sees_companies_and_suspends(pool: PgPool) {
     assert!(p.active_tenants().await.unwrap().is_empty());
     let (s, _) = call(&app, "GET", "/platform/companies/acme/billing", Some(&ta), None).await;
     assert_eq!(s, StatusCode::OK, "members can still see billing");
-    let (audit,): (i64,) = sqlx::query_as("SELECT count(*) FROM platform.audit_log WHERE action = 'company.suspend' AND actor = 'operator:ops@foreman.example'").fetch_one(&pool).await.unwrap();
+    let (audit,): (i64,) = sqlx::query_as("SELECT count(*) FROM platform.audit_log WHERE action = 'company.suspend' AND actor = 'operator:ops@combox.example'").fetch_one(&pool).await.unwrap();
     assert_eq!(audit, 1);
 
     let (s, _) = call(&app, "POST", "/platform/operator/companies/acme/resume", Some(&to), None).await;
@@ -483,7 +483,7 @@ async fn operator_sees_companies_and_suspends(pool: PgPool) {
 async fn existing_company_database_is_imported(pool: PgPool) {
     use axom_platform::tenants::Import;
     let p = platform(&pool).await;
-    // An existing single-company ForeMan database with data and two admins.
+    // An existing single-company Combox database with data and two admins.
     let old = format!("axom_t_import_{}", &Uuid::new_v4().simple().to_string()[..8]);
     sqlx::query(&format!("CREATE DATABASE \"{old}\"")).execute(&pool).await.unwrap();
     let old_pool = sqlx::postgres::PgPoolOptions::new().connect_with((*pool.connect_options()).clone().database(&old).options([("search_path", "public")])).await.unwrap();

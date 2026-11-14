@@ -358,7 +358,7 @@ async fn jobs_board_hires_without_upwork(pool: PgPool) {
     sqlx::query("INSERT INTO axom.hiring_requests (id, kind, required_skills, reason) VALUES ($1,'human_freelancer','{visual_design}','older request')").bind(old_req).execute(&pool).await.unwrap();
     hiring::post_job(&pool, &p, tools.as_ref(), old_req, FREELANCER_TEMPLATE).await.unwrap();
 
-    // The open request is published on ForeMan's own board, not Upwork.
+    // The open request is published on Combox's own board, not Upwork.
     hiring::process_open_requests(&pool, &p, &market).await.unwrap();
     assert_eq!(tools.calls_to("upwork").len(), 1, "only the older Upwork posting");
     let jobs = board::open_jobs(&pool).await.unwrap();

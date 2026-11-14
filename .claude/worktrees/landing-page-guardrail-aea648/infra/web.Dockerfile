@@ -6,7 +6,7 @@ WORKDIR /app
 # Dependencies first: this layer is reused until the lockfile changes, and the
 # npm cache mount makes a lockfile change download only what is new.
 COPY package.json package-lock.json ./
-RUN --mount=type=cache,id=foreman-npm,target=/root/.npm \
+RUN --mount=type=cache,id=combox-npm,target=/root/.npm \
     npm ci --no-audit --no-fund --prefer-offline
 COPY . .
 ARG VITE_AXOM_API_URL

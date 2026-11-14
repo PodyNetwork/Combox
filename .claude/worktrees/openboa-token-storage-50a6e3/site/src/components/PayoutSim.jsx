@@ -88,7 +88,7 @@ export default function PayoutSim() {
           ))}
         </ol>
         <p className="tiny dim">
-          The same order of checks ForeMan runs. Policy {POLICY.version}. Network fees count toward the cap. Thresholds are platform defaults; a company can only make them stricter.
+          The same order of checks Combox runs. Policy {POLICY.version}. Network fees count toward the cap. Thresholds are platform defaults; a company can only make them stricter.
         </p>
       </div>
     </div>

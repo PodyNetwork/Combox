@@ -6,7 +6,7 @@ import { DASHBOARD_HOME, PLAN_PRICE_USD, TRIAL_DAYS } from "../lib/config.js";
 const INCLUDED = [
   ["AI strategy, org design and task assignment", true, true],
   ["An AI workforce in every department, with your Claude model and MCP tools", true, true],
-  ["AI recruiting: ForeMan Jobs board and AI video interviews", true, true],
+  ["AI recruiting: Combox Jobs board and AI video interviews", true, true],
   ["Contracts, briefs portal and autonomous weekly NEAR payroll", true, true],
   ["Hard limits: policy engine, $50 board escalations, monthly cap, kill switch", true, true],
   ["Your own database and NEAR treasury", true, true],
@@ -15,12 +15,12 @@ const INCLUDED = [
 ];
 
 const FAQ = [
-  { q: "Why is the subscription paid in NEAR?", a: "ForeMan already lives on NEAR: it's how your company's AI pays its workers. Paying the subscription the same way means no card details to store. You send NEAR from any wallet and paste the transaction hash; ForeMan checks the transaction on chain before extending your plan." },
-  { q: "How is the NEAR amount worked out?", a: `The plan is priced in US dollars (${"$"}${PLAN_PRICE_USD} a month). At checkout ForeMan quotes that price in NEAR at the live rate. The calculator on this page is only an estimate at whatever rate you type in.` },
+  { q: "Why is the subscription paid in NEAR?", a: "Combox already lives on NEAR: it's how your company's AI pays its workers. Paying the subscription the same way means no card details to store. You send NEAR from any wallet and paste the transaction hash; Combox checks the transaction on chain before extending your plan." },
+  { q: "How is the NEAR amount worked out?", a: `The plan is priced in US dollars (${"$"}${PLAN_PRICE_USD} a month). At checkout Combox quotes that price in NEAR at the live rate. The calculator on this page is only an estimate at whatever rate you type in.` },
   { q: "What happens when the trial or a paid month ends?", a: "You get an email reminder 3 days before, and another when it ends. If it lapses, the company pauses (no tasks, hiring or payouts), but the dashboard stays open so you can renew. Nothing is deleted." },
-  { q: "Does the subscription include what I pay my workers?", a: "No. Worker payouts come from your own NEAR treasury, which you fund from your own wallet. ForeMan never holds customer money. The same goes for tool costs such as your Claude API key." },
+  { q: "Does the subscription include what I pay my workers?", a: "No. Worker payouts come from your own NEAR treasury, which you fund from your own wallet. Combox never holds customer money. The same goes for tool costs such as your Claude API key." },
   { q: "Is there a free way to try it?", a: `Yes, two. Run the full demo on your own laptop with ./scripts/start demo (no accounts, NEAR testnet), or start a ${TRIAL_DAYS}-day free trial on the platform.` },
-  { q: "Can the platform operator change the price?", a: "Yes. Whoever runs an ForeMan platform sets its price and trial length. The figures here are the defaults." },
+  { q: "Can the platform operator change the price?", a: "Yes. Whoever runs an Combox platform sets its price and trial length. The figures here are the defaults." },
 ];
 
 export default function Pricing() {
@@ -48,7 +48,7 @@ export default function Pricing() {
               <span className="card-icon"><Sparkles aria-hidden="true" /></span>
               <h3 className="h-s">Platform</h3>
               <div className="price"><b>${PLAN_PRICE_USD}</b><span>per company / month</span></div>
-              <p className="muted small">Launch an autonomous company on hosted ForeMan. {TRIAL_DAYS} days free, no payment to start.</p>
+              <p className="muted small">Launch an autonomous company on hosted Combox. {TRIAL_DAYS} days free, no payment to start.</p>
               <ul className="check-list">
                 <li><Check aria-hidden="true" />Your own isolated database and treasury</li>
                 <li><Check aria-hidden="true" />Invite your board (two-factor for all)</li>
@@ -78,10 +78,10 @@ export default function Pricing() {
           <SectionHead eyebrow="Paying in NEAR" title="Five steps, no card on file." />
           <div className="grid-2" style={{ alignItems: "start" }}>
             <ol className="timeline" data-reveal="left">
-              <li><span className="n">1</span><div><h4>Open Billing in the dashboard</h4><p>Pick 1 to 12 months. ForeMan quotes the price in NEAR at the live rate.</p></div></li>
+              <li><span className="n">1</span><div><h4>Open Billing in the dashboard</h4><p>Pick 1 to 12 months. Combox quotes the price in NEAR at the live rate.</p></div></li>
               <li><span className="n">2</span><div><h4>Send NEAR from any wallet</h4><p>To the platform's billing account shown on the page.</p></div></li>
               <li><span className="n">3</span><div><h4>Paste the transaction hash</h4><p>That's the whole form.</p></div></li>
-              <li><span className="n">4</span><div><h4>ForeMan checks it on chain</h4><p>Recipient, amount, success and timing are verified on NEAR itself before anything is extended.</p></div></li>
+              <li><span className="n">4</span><div><h4>Combox checks it on chain</h4><p>Recipient, amount, success and timing are verified on NEAR itself before anything is extended.</p></div></li>
               <li><span className="n">5</span><div><h4>Your subscription is extended</h4><p>With an email reminder 3 days before it ends next time.</p></div></li>
             </ol>
             <Calculator />

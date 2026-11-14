@@ -1,4 +1,4 @@
-//! NEAR JSON-RPC client (the subset ForeMan uses) and an in-memory mock that
+//! NEAR JSON-RPC client (the subset Combox uses) and an in-memory mock that
 //! validates signed transactions the way a NEAR node would for our encoding.
 
 use std::collections::HashMap;

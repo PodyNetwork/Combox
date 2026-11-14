@@ -1,4 +1,4 @@
-# Rust ForeMan: Shared Context
+# Rust Combox: Shared Context
 
 Attach this file to every build session, followed by the one milestone file for that session. Run the milestones in order (01 through 09). Each session builds only its milestone, but every rule here applies to all of them.
 
@@ -24,7 +24,7 @@ Everything runs on the owner's VPS, managed through Coolify, an open-source plat
 - Social: self-hosted Postiz.
 - CRM: OpenDesk if it is confirmed to have an API. Otherwise self-hosted Twenty, an open-source CRM. Log the choice in DECISIONS.md.
 - Task intake: an internal queue inside axom-api.
-- ForeMan core: a container on Coolify.
+- Combox core: a container on Coolify.
 
 Exceptions to self-hosting:
 
@@ -34,12 +34,12 @@ Exceptions to self-hosting:
 We build and own:
 
 - The policy engine, monthly cap ledger, approval gate, and audit log.
-- The ForeMan core services, the signer, and the MCP bridge.
+- The Combox core services, the signer, and the MCP bridge.
 - The meeting agent, the participant UI, the minimal admin dashboard, and the task intake queue.
 
 ## Hackathon constraints
 
-ForeMan is entered in NEAR HACKATHON. The organizers' rules are in NEAR_HACKATHON.md, and milestone 10 (09_hackathon_submission.md) covers packaging and submission.
+Combox is entered in NEAR HACKATHON. The organizers' rules are in NEAR_HACKATHON.md, and milestone 10 (09_hackathon_submission.md) covers packaging and submission.
 
 - Code from 2026-10-19 counts toward the judged window (Q-001). Commits before that date are baseline. Submissions are accepted from 2026-11-01T00:00:00Z to 2026-11-14T23:59:00Z. Only the NEAR integration built in the window is judged (Q-002).
 - The repository must be public by 2026-11-14T23:59:00Z. Judges must be able to reproduce the demo without our VPS (judge mode, milestone 9).
@@ -51,14 +51,14 @@ ForeMan is entered in NEAR HACKATHON. The organizers' rules are in NEAR_HACKATHO
 - /meet-agent: Python meeting agent
 - /meet-web: participant web UI (React)
 - /admin: minimal admin dashboard and MCP server
-- /infra: Coolify service definitions for LiveKit, Supabase, OpenBao, DocuSeal, Postiz, and ForeMan
+- /infra: Coolify service definitions for LiveKit, Supabase, OpenBao, DocuSeal, Postiz, and Combox
 - /supabase: migrations and seed scripts
 - /docs
 - Root: .env.example, DECISIONS.md, README.md
 
 ## Goal
 
-When Rust ForeMan starts, it acts as HR. It reads a master plan, splits it into departments, teams, and workers, and gives each worker a role, a tool allowlist, a pay rate, and KPIs. It routes each task to a worker whose tools and skills can complete it. If no one can, it hires. It tracks performance, fires underperformers, and pays workers within the monthly cap.
+When Rust Combox starts, it acts as HR. It reads a master plan, splits it into departments, teams, and workers, and gives each worker a role, a tool allowlist, a pay rate, and KPIs. It routes each task to a worker whose tools and skills can complete it. If no one can, it hires. It tracks performance, fires underperformers, and pays workers within the monthly cap.
 
 ## Workers
 

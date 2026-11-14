@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Stop ForeMan: the demo (./scripts/start demo), including anything a run
-# killed without Ctrl+C left behind, and your own ForeMan in Docker
-# (./scripts/start). Your own ForeMan's data is kept.
+# Stop Combox: the demo (./scripts/start demo), including anything a run
+# killed without Ctrl+C left behind, and your own Combox in Docker
+# (./scripts/start). Your own Combox's data is kept.
 #
 #   ./scripts/stop
 set -euo pipefail
@@ -18,10 +18,10 @@ if [[ -f "$WEB_PIDS" ]]; then
 fi
 "$ROOT/judge/run.sh" --stop
 
-# Your own ForeMan (Docker), if it's set up and running.
+# Your own Combox (Docker), if it's set up and running.
 if [[ -f "$ROOT/.env" ]] && command -v docker >/dev/null && docker info >/dev/null 2>&1 \
   && [[ -n "$(cd "$ROOT" && docker compose --profile payouts ps -q 2>/dev/null)" ]]; then
   # The payouts profile too, so a running signer stops with the rest.
   (cd "$ROOT" && docker compose --profile payouts stop)
 fi
-printf '\033[1m%s\033[0m\n' "ForeMan is stopped. Start it again with ./scripts/start (or ./scripts/start demo)."
+printf '\033[1m%s\033[0m\n' "Combox is stopped. Start it again with ./scripts/start (or ./scripts/start demo)."

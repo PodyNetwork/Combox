@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Start ForeMan.
+# Start Combox.
 #
 #   ./scripts/start demo            the demo: no accounts needed. Builds and runs
 #                                   everything on this machine (local Postgres and
@@ -7,13 +7,13 @@
 #                                   testnet), runs the demo scenario and opens the
 #                                   website, signed in. Ctrl+C stops everything.
 #   ./scripts/start demo --no-open  same, without opening the browser
-#   ./scripts/start                 your own ForeMan in Docker, set up with
+#   ./scripts/start                 your own Combox in Docker, set up with
 #                                   ./scripts/setup. Also rebuilds after pulling
 #                                   new code.
 #   ./scripts/stop                  stop either one
 #
 # The demo needs Rust, Node.js 20+, Python 3, curl and Docker; your own
-# ForeMan needs Docker and curl. On macOS, Docker Desktop is started for you
+# Combox needs Docker and curl. On macOS, Docker Desktop is started for you
 # if it isn't running.
 set -euo pipefail
 
@@ -43,7 +43,7 @@ ensure_docker() {
   fail "Docker isn't running." "Start Docker (Docker Desktop, OrbStack, colima, ...) and run this again."
 }
 
-# Fail if a port ForeMan needs is taken, naming the process holding it.
+# Fail if a port Combox needs is taken, naming the process holding it.
 ports_free() { # "port:what" ...
   command -v lsof >/dev/null || return 0
   local check pid
@@ -51,15 +51,15 @@ ports_free() { # "port:what" ...
     pid="$(lsof -nP -t -iTCP:"${check%%:*}" -sTCP:LISTEN 2>/dev/null | head -1 || true)"
     [[ -z "$pid" ]] || fail "Port ${check%%:*} (${check#*:}) is already in use." \
       "It's held by: $(ps -p "$pid" -o command= 2>/dev/null | cut -c1-120) (pid $pid)" \
-      "If that's ForeMan, stop it with Ctrl+C in its terminal or run: ./scripts/stop"
+      "If that's Combox, stop it with Ctrl+C in its terminal or run: ./scripts/stop"
   done
 }
 
-# Your own ForeMan: the Docker stack configured by ./scripts/setup.
+# Your own Combox: the Docker stack configured by ./scripts/setup.
 stack() {
   cd "$ROOT"
   [[ -n "$(get_env SUPABASE_URL)" && -n "$(get_env AXOM_ATTESTATION_SIGNING_KEY)" ]] \
-    || fail "ForeMan isn't set up on this machine yet." "Run ./scripts/setup first, or try the demo: ./scripts/start demo"
+    || fail "Combox isn't set up on this machine yet." "Run ./scripts/setup first, or try the demo: ./scripts/start demo"
   need curl "Install curl with your package manager"
   ensure_docker
   pgrep -f "$ROOT/judge/run.sh" >/dev/null 2>&1 \
@@ -79,7 +79,7 @@ stack() {
 
   # Payouts: OpenBao and the signer, set up once (the signer's token is
   # OPENBAO_TOKEN in .env). Set up here if they aren't yet, so the dashboard's treasury is
-  # connected without a separate step. If that fails, ForeMan starts anyway
+  # connected without a separate step. If that fails, Combox starts anyway
   # with payouts off, and the next start tries again.
   local payouts=off
   # (This also moves an older setup's secrets/openbao_signer_token into .env.)
@@ -92,7 +92,7 @@ stack() {
     export COMPOSE_PROFILES=payouts AXOM_DOCKER_SIGNER_URL=http://axom-signer:8090
   fi
 
-  say "Building and starting ForeMan (the first build takes several minutes)"
+  say "Building and starting Combox (the first build takes several minutes)"
   docker compose up --build -d
   printf 'Waiting for the API'
   for _ in $(seq 1 90); do
@@ -124,7 +124,7 @@ stack() {
   fi
   echo
   say "──────────────────────────────────────────────────────────────"
-  say " ForeMan is running"
+  say " Combox is running"
   echo "   Website      http://localhost:$SITE_PORT  (Sign in takes you to the dashboard)"
   echo "   Dashboard    http://localhost:$DASH_PORT"
   echo "   Jobs board   http://localhost:$JOBS_PORT/jobs"
@@ -225,7 +225,7 @@ web() {
   fi
   echo
   say "──────────────────────────────────────────────────────────────"
-  say " ForeMan demo is running"
+  say " Combox demo is running"
   if [[ "$opened" == 1 ]]; then
     echo "   Opened in your browser (signed in through Sign in)"
   else
@@ -249,11 +249,11 @@ cleanup() {
   # A background job ignores Ctrl+C: stop it and whatever it's running (a build).
   if [[ -n "$WEB" ]]; then pkill -TERM -P "$WEB" 2>/dev/null || true; kill "$WEB" 2>/dev/null || true; fi
   stop_web
-  echo; say "ForeMan stopped. Run ./scripts/start demo to start it again."
+  echo; say "Combox stopped. Run ./scripts/start demo to start it again."
 }
 trap cleanup EXIT
 
-say "Starting the ForeMan demo. The first run builds everything and takes a few minutes."
+say "Starting the Combox demo. The first run builds everything and takes a few minutes."
 # judge/run.sh removes the previous run's judge-admin.env before anything
 # else listens on :8080, so the web apps can't pick up a stale one.
 web &

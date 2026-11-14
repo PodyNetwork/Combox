@@ -42,10 +42,10 @@ impl LiveKit {
         Self { http, ws_url: ws_url.into(), api_key: api_key.into(), api_secret: api_secret.into(), participant_ttl_secs: 15 * 60 }
     }
 
-    /// The LiveKit server bundled with ForeMan (server settings, never a
+    /// The LiveKit server bundled with Combox (server settings, never a
     /// company's): `LIVEKIT_URL` (what browsers connect to),
     /// `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET`, and optionally
-    /// `LIVEKIT_API_URL` when ForeMan reaches the server at another address
+    /// `LIVEKIT_API_URL` when Combox reaches the server at another address
     /// (inside Docker, `http://livekit:7880`).
     pub fn from_env() -> anyhow::Result<Self> {
         let c = crate::config::EnvSource;
@@ -72,7 +72,7 @@ impl LiveKit {
         if let Some(r) = room {
             video["room"] = json!(r);
         }
-        self.token("axom-backend", "ForeMan", 60, video, None)
+        self.token("axom-backend", "Combox", 60, video, None)
     }
 
     async fn twirp(&self, service: &str, method: &str, room: Option<&str>, body: Value, dry: Value) -> ToolResult<Value> {

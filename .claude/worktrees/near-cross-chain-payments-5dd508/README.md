@@ -1,7 +1,7 @@
-# Rust ForeMan
+# Rust Combox
 
 **A fully autonomous company, run by AI in every area of its operations.**
-ForeMan is the operating system for an AI-run company: from a single mission
+Combox is the operating system for an AI-run company: from a single mission
 it plans the strategy, builds departments, teams, and workers (AI agents and
 human freelancers), runs engineering, marketing, sales and operations through
 its agents, recruits, interviews and hires, reviews performance and fires
@@ -44,7 +44,7 @@ Security & Defense). Everything below runs on your machine; NEAR is real
 testnet, other outside services are mocks.
 
 1. Run `./scripts/start demo` (needs Rust, Node.js 20+, Python 3, Docker).
-   See: the build, then the scenario printing each step, then the ForeMan
+   See: the build, then the scenario printing each step, then the Combox
    website opening at http://localhost:5175. Its **Sign in** takes you into
    the dashboard, already signed in.
 2. In the terminal output, see: an org chart built from "Launch a SaaS
@@ -93,7 +93,7 @@ Python 3 and [Docker](https://www.docker.com/products/docker-desktop/), then:
 ```
 
 That's it. It builds and starts everything on your machine, runs the demo
-scenario, and opens the ForeMan website (http://localhost:5175) in your browser;
+scenario, and opens the Combox website (http://localhost:5175) in your browser;
 its **Sign in** takes you into the dashboard, already signed in. Once you're
 signed in, opening the website's home page goes straight to the dashboard. The
 jobs board is at http://localhost:5173/jobs. No
@@ -104,7 +104,7 @@ terminal was closed), `./scripts/stop` cleans it up.
 This is [judge mode](#try-it-in-under-10-minutes-judge-mode): outside
 services are mocked and payouts use NEAR testnet.
 
-**To run ForeMan for real** (the full stack in Docker, your own sign-in), create
+**To run Combox for real** (the full stack in Docker, your own sign-in), create
 a free [Supabase](https://supabase.com) project with a user for yourself
 (click-by-click steps: [docs/SETUP.md, step 2](docs/SETUP.md#2-create-a-supabase-project-free-for-sign-in)), then:
 
@@ -121,8 +121,8 @@ your first sign-in. Only Docker is needed.
 | Command | What it does |
 |---|---|
 | `./scripts/start demo` | The demo: no accounts needed, Ctrl+C stops it |
-| `./scripts/setup` | Set up your own ForeMan (first time), then start it |
-| `./scripts/start` | Start your own ForeMan (also rebuilds after pulling new code) |
+| `./scripts/setup` | Set up your own Combox (first time), then start it |
+| `./scripts/start` | Start your own Combox (also rebuilds after pulling new code) |
 | `./scripts/stop` | Stop either one; your data is kept |
 
 ## How it works, from each person's point of view
@@ -134,7 +134,7 @@ your first sign-in. Only Docker is needed.
 treasury whose signing key never leaves your OpenBao vault, topped up from
 your own cold wallet with about a month's budget.
 
-**Day to day**, ForeMan runs on its own and you hear about what matters:
+**Day to day**, Combox runs on its own and you hear about what matters:
 
 - **Emails and a dashboard feed** for anything important: a worker was
   fired (with the reason, the metrics, and an audit link), a contract went
@@ -154,7 +154,7 @@ the agent log, and the kill switch.
 
 ### AI workers
 
-- ForeMan turns the plan into departments and teams, creates AI agents for
+- Combox turns the plan into departments and teams, creates AI agents for
   each role, and gives each task to the agent with the right tools and
   skills and the lightest load.
 - Agents do the work with tools (code, social posts, sales outreach, CRM,
@@ -172,14 +172,14 @@ the agent log, and the kill switch.
 
 ### Freelancers
 
-- When nobody on the team can do a task (say, logo design), ForeMan posts the
-  job on **ForeMan Jobs**, its own public jobs board (`/jobs` on the
+- When nobody on the team can do a task (say, logo design), Combox posts the
+  job on **Combox Jobs**, its own public jobs board (`/jobs` on the
   candidate site). It shortlists applicants by skill match and emails them
   an invite to a video interview.
 - Why not Upwork: Upwork's terms forbid paying freelancers it introduced
   outside Upwork (unless you pay its conversion fee), so they can't be paid
   in NEAR. Upwork is still available (`AXOM_MARKETPLACE=upwork`), but those
-  hires are paid through Upwork, and ForeMan blocks NEAR payouts to them.
+  hires are paid through Upwork, and Combox blocks NEAR payouts to them.
 - After a good interview, the freelancer gets a contract to sign. It always
   comes from one of your pre-approved templates; the AI never writes
   contract terms.
@@ -205,7 +205,7 @@ the agent log, and the kill switch.
 
 ### What happens to a payout
 
-1. At the end of each week, ForeMan works out what each person earned:
+1. At the end of each week, Combox works out what each person earned:
    completed work times their rate.
 2. It checks the rules: under $50, within the monthly cap, a verified
    address, and a tax form on file.
@@ -307,7 +307,7 @@ AXOM_TEST_BAO_BIN=/path/to/bao cargo test -p axom-signer -- --ignored --skip tes
 ```
  master plan ─▶ planner ─▶ org chart, tasks ─▶ routing ─▶ AI workers (tools) / freelancers (task intake)
                                    │                          │
-                       hiring requests ─▶ ForeMan Jobs ─▶ AI interview (LiveKit) ─▶ DocuSeal contract
+                       hiring requests ─▶ Combox Jobs ─▶ AI interview (LiveKit) ─▶ DocuSeal contract
                                                               │
  task records ─▶ performance reviews ─▶ firing (owner notified)
                                                               │
@@ -322,7 +322,7 @@ AXOM_TEST_BAO_BIN=/path/to/bao cargo test -p axom-signer -- --ignored --skip tes
 |---|---|
 | `axom/` | Rust workspace: `axom-core` (domain, state machines, audit, NEAR encoding), `axom-hr` (policy, cap ledger, payouts, payroll, gates, reviews, firing, meetings, hiring), `axom-planner`, `axom-tools` (adapters), `axom-api` (HTTP API, admin endpoints, MCP server, task intake), `axom-signer`, `axom-bin` (`axom` binary) |
 | `meet-agent/` | Python meeting agent (LiveKit Agents) |
-| `meet-web/` | Participant site: ForeMan Jobs board (`/jobs`), freelancer portal (`/briefs`), and the interview room (`/join`) (React, LiveKit components) |
+| `meet-web/` | Participant site: Combox Jobs board (`/jobs`), freelancer portal (`/briefs`), and the interview room (`/join`) (React, LiveKit components) |
 | `admin/` | Admin dashboard, the "control room" (React, Tailwind, Supabase Auth with TOTP) |
 | `config/` | Versioned policy, planner, and performance config; sample master plan |
 | `supabase/migrations/` | Postgres schema (`axom` schema) |
@@ -359,7 +359,7 @@ Then fill in `.env` in this order. Each step unlocks more of the system.
    with testnet NEAR) and the signer token. Set `OPENBAO_ADDR` and
    `OPENBAO_TOKEN` (the token itself, never a file). Leave `NEAR_NETWORK=testnet`. Add a CoinGecko key in
    `NEAR_PRICE_FEED_API_KEY` for the NEAR price.
-4. **AI interviews.** LiveKit (video) and the AI interviewer ship with ForeMan:
+4. **AI interviews.** LiveKit (video) and the AI interviewer ship with Combox:
    Docker starts both. Without Docker, run a LiveKit server
    (`livekit-server --dev`) and set `LIVEKIT_URL`, `LIVEKIT_API_KEY`,
    `LIVEKIT_API_SECRET`; install the interviewer with
@@ -413,12 +413,12 @@ AI workers aren't limited to the built-in tools. On the dashboard's **Tools**
 page an admin can add:
 
 - an **MCP server** (any server speaking MCP over HTTP: GitHub, Notion, a
-  search service, your own). ForeMan connects, lists its tools, and adds each
+  search service, your own). Combox connects, lists its tools, and adds each
   one as `<name>.<tool>`, for example `github.create_issue`;
-- a **webhook**: ForeMan POSTs the task as JSON to your URL and keeps the reply.
+- a **webhook**: Combox POSTs the task as JSON to your URL and keeps the reply.
 
 Then, on the **Team** page, the admin ticks which tools each AI worker may use,
-and tasks can require a tool ("Tools needed" when creating a task). ForeMan
+and tasks can require a tool ("Tools needed" when creating a task). Combox
 routes the task to a worker with that tool and runs it.
 
 Guard rails:
@@ -427,44 +427,44 @@ Guard rails:
 - Every call still passes the policy engine (the tool must be on the worker's
   list), runs in dry-run until `AXOM_LIVE=true`, and its output is stored as
   untrusted data, never followed as instructions.
-- Tools may only reach public HTTPS addresses: ForeMan refuses private,
+- Tools may only reach public HTTPS addresses: Combox refuses private,
   loopback, and cloud-metadata addresses, pins the address it checked, and
   doesn't follow redirects. A single-company deployment can allow its own
   internal services with `AXOM_TOOLS_ALLOW_PRIVATE=true`; the platform never
   does.
 - Tokens are encrypted with `AXOM_SECRETS_KEY` and never shown again.
 
-ForeMan passes each tool the task's objective (in a `query`, `prompt`,
+Combox passes each tool the task's objective (in a `query`, `prompt`,
 `input`-style field when the tool's schema has one) and the task id. The
 built-in integrations (email, DocuSeal, Postiz, the CRM, Warmbly, Upwork,
-LiveKit) stay as they are: ForeMan's own hiring, contracts, and payroll depend on
+LiveKit) stay as they are: Combox's own hiring, contracts, and payroll depend on
 them directly.
 
-## Running ForeMan as a platform for many companies
+## Running Combox as a platform for many companies
 
 Set `AXOM_MULTI_TENANT=true` and anyone can sign up and run their own
-company on your ForeMan.
+company on your Combox.
 
 **What a customer sees** (in the dashboard, a Material Design app):
 
 1. **Sign up** with email and password, then set up an authenticator app
-   (two-factor is required for everyone, because ForeMan controls payouts).
+   (two-factor is required for everyone, because Combox controls payouts).
 2. **Create a company**: a name and an address (used in links such as
    `/t/acme/jobs`). The **free trial** (14 days by default) starts now.
-3. **Describe the goal** (goal, budget, deadline, objectives). ForeMan builds
+3. **Describe the goal** (goal, budget, deadline, objectives). Combox builds
    departments, AI workers, and tasks, and opens hiring requests for work
    that needs people. This can be skipped and done later in Settings.
 4. **Connect their tools** under Integrations: their own email (SMTP),
    DocuSeal, Postiz, opendesk (CRM), Warmbly, Upwork, LiveKit, and an MCP token.
    Keys are encrypted; only the last four characters are ever shown.
 5. **Create their NEAR treasury** (Settings) and fund it. Its key is created
-   in OpenBao, can't be exported, and only the signer can use it; ForeMan never
+   in OpenBao, can't be exported, and only the signer can use it; Combox never
    holds customer money.
 6. **Invite their team** by email (Members). Invitees join when they sign up
    with that address.
-7. **Pay in NEAR** (Billing): ForeMan quotes the plan price in NEAR at the live
+7. **Pay in NEAR** (Billing): Combox quotes the plan price in NEAR at the live
    rate; the customer sends it from any wallet and pastes the transaction
-   hash. ForeMan checks the transaction on NEAR itself before extending the
+   hash. Combox checks the transaction on NEAR itself before extending the
    subscription. If it lapses, automation pauses and the dashboard stays
    available so they can renew.
 
@@ -633,7 +633,7 @@ freelancing MCP, which are hosted by their providers.
    with its own Docker setup (github.com/useopendesk/opendesk). Create API
    keys for DocuSeal, Postiz, and opendesk (scopes `contacts:read` and
    `contacts:write`).
-6. **ForeMan**: generate the authorization keys with `axom keygen` (once for
+6. **Combox**: generate the authorization keys with `axom keygen` (once for
    attestations, once for approvals), put every variable from
    [`.env.example`](.env.example) into Coolify's environment editor
    (including the signer token as `OPENBAO_TOKEN`; never save it to a file), and deploy
@@ -686,11 +686,11 @@ cross-chain route fee, slippage, and shortfall bound) are in `config/policy.toml
 
 ## Built at NEAR HACKATHON
 
-ForeMan was built for NEAR HACKATHON (1-14 Nov 2026). The first commit is
+Combox was built for NEAR HACKATHON (1-14 Nov 2026). The first commit is
 from 2026-11-08, inside the judged window that opened with the announcement
 on 2026-10-19, so there is no pre-hackathon baseline: the whole repository is
 hackathon work. The submitted state is tagged `hackathon-submission`
-([commits](https://github.com/PodyNetwork/foreman/commits/hackathon-submission)).
+([commits](https://github.com/PodyNetwork/Combox/commits/hackathon-submission)).
 
 **How NEAR fits in.** NEAR is where the money and its rules live:
 
@@ -714,7 +714,7 @@ hackathon work. The submitted state is tagged `hackathon-submission`
   withdraw with interest
   [`Hh1Z3tjk…`](https://testnet.nearblocks.io/txns/Hh1Z3tjkGeZ6czsHieX1sNqESJBfDwSSawtH56Jqahb6).
 - **Subscriptions.** In platform mode, companies pay their plan in NEAR, and
-  ForeMan checks the transaction on chain before extending the subscription.
+  Combox checks the transaction on chain before extending the subscription.
 
 **Not yet verified on mainnet** (details in DECISIONS.md, XC-12): the
 cross-chain deposit transaction runs on real testnet

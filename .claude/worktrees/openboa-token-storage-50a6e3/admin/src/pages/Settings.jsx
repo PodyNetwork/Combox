@@ -53,7 +53,7 @@ function CompanyDetails() {
       {!info.has_plan && (
         <Panel className="p-6 sm:p-8">
           <PanelHead eyebrow="First step" title="Set your company's goal" />
-          <p className="-mt-2 mb-6 max-w-2xl text-sm text-mute">ForeMan builds departments, AI workers, and tasks from it, and opens hiring requests for work that needs people.</p>
+          <p className="-mt-2 mb-6 max-w-2xl text-sm text-mute">Combox builds departments, AI workers, and tasks from it, and opens hiring requests for work that needs people.</p>
           <PlanForm session={session} slug={slug} onSaved={(r) => { notify(`Created ${r.departments} departments and ${r.workers_created} AI workers.`); reload(); }} />
         </Panel>
       )}
@@ -64,7 +64,7 @@ function CompanyDetails() {
             title={account ? "Ready to fund" : "Not set up"}
             action={account ? <Badge tone="lime" dot>Created</Badge> : <Badge tone="amber">Payouts wait</Badge>}
           />
-          <p className="-mt-2 mb-5 text-sm text-mute">Your company's own wallet for paying workers. Its key stays in OpenBao and can't be exported; ForeMan never holds your funds.</p>
+          <p className="-mt-2 mb-5 text-sm text-mute">Your company's own wallet for paying workers. Its key stays in OpenBao and can't be exported; Combox never holds your funds.</p>
           {account ? (
             <div className="space-y-3">
               <p className="font-mono text-[10px] uppercase tracking-widest text-dim">Treasury account (fund this)</p>

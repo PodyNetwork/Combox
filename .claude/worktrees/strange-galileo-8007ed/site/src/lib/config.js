@@ -6,12 +6,12 @@ const strip = (u) => u.replace(/\/$/, "");
 export const DASHBOARD_URL = strip(import.meta.env.VITE_DASHBOARD_URL || "http://localhost:5174");
 /** Every dashboard link on the site. In judge mode Layout adds the sign-in token on click. */
 export const DASHBOARD_HOME = `${DASHBOARD_URL}/`;
-/** The public jobs board (ForeMan Jobs) on the participant site. */
+/** The public jobs board (Combox Jobs) on the participant site. */
 export const JOBS_URL = strip(import.meta.env.VITE_JOBS_URL || "http://localhost:5173/jobs");
 /** The freelancer portal on the participant site. */
 export const BRIEFS_URL = strip(import.meta.env.VITE_BRIEFS_URL || "http://localhost:5173/briefs");
 /** Source code and docs. */
-export const REPO_URL = strip(import.meta.env.VITE_REPO_URL || "https://github.com/PodyNetwork/foreman");
+export const REPO_URL = strip(import.meta.env.VITE_REPO_URL || "https://github.com/PodyNetwork/Combox");
 
 /** Built for ./scripts/start demo (judge mode): the dashboard signs in with a local token. */
 export const JUDGE_MODE = import.meta.env.VITE_JUDGE_MODE === "true";

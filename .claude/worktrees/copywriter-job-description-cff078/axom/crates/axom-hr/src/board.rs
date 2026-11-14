@@ -1,4 +1,4 @@
-//! ForeMan Jobs: ForeMan's own jobs board, used in place of Upwork.
+//! Combox Jobs: Combox's own jobs board, used in place of Upwork.
 //!
 //! Upwork forbids paying freelancers it introduced outside its platform
 //! (without a conversion fee), so they can't be paid in NEAR. Freelancers who
@@ -8,7 +8,7 @@
 //! The board implements [`FreelanceMarketplace`], so the hiring pipeline
 //! (policy check, shortlist, AI interview, contract, activation) is the same
 //! as for Upwork. Jobs are published on the public board; applicants apply
-//! through the public API; ForeMan contacts them by email.
+//! through the public API; Combox contacts them by email.
 //!
 //! Everything an applicant submits is untrusted data: stored and matched
 //! deterministically, never interpreted.

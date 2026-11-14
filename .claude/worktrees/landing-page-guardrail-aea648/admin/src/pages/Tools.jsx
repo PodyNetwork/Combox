@@ -1,4 +1,4 @@
-// Tools AI workers can use: MCP servers (whose tools ForeMan discovers) and
+// Tools AI workers can use: MCP servers (whose tools Combox discovers) and
 // HTTP webhooks your admins connect. The standard names roles use (crm,
 // code_repo, postiz, ...) are filled by connecting a server with that name.
 // A worker uses a tool only once it's on the worker's list (Team page).
@@ -238,8 +238,8 @@ function AddTool({ preset, onClose, onDone }) {
         />
         <p className="text-sm text-mute">
           {mcp
-            ? "An MCP server over HTTP (streamable HTTP). ForeMan connects, lists its tools, and adds each one as server-name.tool-name."
-            : "ForeMan POSTs the task as JSON to this URL and stores the response. The tool is named after the name you choose."}
+            ? "An MCP server over HTTP (streamable HTTP). Combox connects, lists its tools, and adds each one as server-name.tool-name."
+            : "Combox POSTs the task as JSON to this URL and stores the response. The tool is named after the name you choose."}
         </p>
         <Input label="Name" placeholder="github" value={form.name} onChange={set("name")} hint={preset ? `Keep it ${preset.name} so workers with ${preset.name} on their list use this server.` : "Lowercase letters, digits, - and _. Tools are called by this name."} className="[&_input]:font-mono" autoFocus={!preset} />
         <Input label="URL" placeholder={mcp ? "https://mcp.example.com/mcp" : "https://hooks.example.com/axom"} value={form.url} onChange={set("url")} autoFocus={!!preset} hint="Must be https and on the public internet." inputMode="url" className="[&_input]:font-mono" />

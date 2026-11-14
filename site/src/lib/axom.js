@@ -1,4 +1,4 @@
-// Small, faithful copies of ForeMan's own rules, so the demos on this site
+// Small, faithful copies of Combox's own rules, so the demos on this site
 // behave the way the product does:
 //   - evaluatePayout mirrors the payroll gates, axom-hr's policy engine
 //     (crates/axom-hr/src/policy.rs) and the monthly cap ledger.
@@ -156,7 +156,7 @@ export function plan(objectives) {
       t.assignee = ai.title;
       t.kind = "ai";
     } else {
-      t.assignee = "Hiring request → ForeMan Jobs";
+      t.assignee = "Hiring request → Combox Jobs";
       t.kind = "human";
     }
   }

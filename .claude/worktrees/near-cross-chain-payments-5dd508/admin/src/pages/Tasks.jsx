@@ -1,4 +1,4 @@
-// Every task, its status and requirements; and adding a new one. ForeMan picks
+// Every task, its status and requirements; and adding a new one. Combox picks
 // a task up as soon as it starts (now, or at the time set): it routes it to a
 // capable worker, or hires one right away.
 import { useMemo, useState } from "react";
@@ -77,7 +77,7 @@ export default function Tasks() {
           <Icon name="plus" size={16} /> New task
         </Button>
       </PageHead>
-      <p className="reveal -mt-2 mb-6 max-w-2xl text-sm text-mute">ForeMan routes each task to a capable worker, or opens a hiring request.</p>
+      <p className="reveal -mt-2 mb-6 max-w-2xl text-sm text-mute">Combox routes each task to a capable worker, or opens a hiring request.</p>
       <div className="reveal mb-5" style={{ "--i": 1 }}>
         <Segmented
           value={filter}
@@ -92,7 +92,7 @@ export default function Tasks() {
       </div>
       <ErrorNote error={error} />
       {loading && <Loading rows={5} />}
-      {data && count(filter) === 0 && <Empty title="No tasks here." text="Add one with New task. ForeMan finds a worker for it or opens a hiring request." />}
+      {data && count(filter) === 0 && <Empty title="No tasks here." text="Add one with New task. Combox finds a worker for it or opens a hiring request." />}
       {data && count(filter) > 0 && (
         <div className={single ? "" : "scrollbar-none -mx-4 flex snap-x scroll-px-4 gap-4 overflow-x-auto px-4 pb-4 sm:-mx-8 sm:scroll-px-8 sm:px-8"}>
           {columns.map((c, ci) => {

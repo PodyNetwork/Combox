@@ -1,4 +1,4 @@
-//! NEAR primitives ForeMan needs without pulling in the full NEAR SDK:
+//! NEAR primitives Combox needs without pulling in the full NEAR SDK:
 //! ed25519 public keys, implicit accounts, Borsh encoding of transactions
 //! (Transfer and FunctionCall actions), and yoctoNEAR conversion.
 //!

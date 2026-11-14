@@ -155,7 +155,7 @@ export default function Members() {
                 <Icon name="plus" size={16} /> {inviting ? "Inviting…" : "Invite"}
               </Button>
             </form>
-            <p className="mt-4 text-xs text-dim">ForeMan emails them how to join. They sign up with that address; the invitation has no link to forward.</p>
+            <p className="mt-4 text-xs text-dim">Combox emails them how to join. They sign up with that address; the invitation has no link to forward.</p>
           </Panel>
         </div>
       )}

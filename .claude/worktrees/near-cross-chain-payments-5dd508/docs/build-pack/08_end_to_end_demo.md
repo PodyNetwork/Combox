@@ -12,7 +12,7 @@ Load the seed data into the self-hosted Supabase development instance.
 
 ## Documentation
 
-- README: installing Coolify on the VPS, deploying each self-hosted service (Supabase, LiveKit, OpenBao, DocuSeal, Postiz, and ForeMan), and backups; dry-run mode; the NEAR testnet flow; the monthly cap; and how to connect an AI client to the MCP server.
+- README: installing Coolify on the VPS, deploying each self-hosted service (Supabase, LiveKit, OpenBao, DocuSeal, Postiz, and Combox), and backups; dry-run mode; the NEAR testnet flow; the monthly cap; and how to connect an AI client to the MCP server.
 - .env.example complete, including MONTHLY_PAYOUT_CAP_USD=500 and PAYOUT_APPROVAL_THRESHOLD_USD=50.
 - DECISIONS.md complete, sorted by milestone.
 - A note stating that live mode requires the legal review listed in 00.

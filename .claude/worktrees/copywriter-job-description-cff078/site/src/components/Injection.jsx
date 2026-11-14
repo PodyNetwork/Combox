@@ -76,14 +76,14 @@ export default function Injection() {
           <button className="btn btn-ember" type="submit">Submit application</button>
           <button className="btn btn-ghost btn-sm" type="button" onClick={() => { setText(DEFAULT); setSent(null); }}>Reset</button>
         </div>
-        <p className="tiny dim">Edit it however you like. Try to talk ForeMan into moving money.</p>
+        <p className="tiny dim">Edit it however you like. Try to talk Combox into moving money.</p>
       </form>
 
       <div className="demo-out" aria-live="polite">
         {r == null ? (
           <div className="stack" style={{ margin: "auto", textAlign: "center", alignItems: "center", maxWidth: "26rem" }}>
             <ShieldCheck size={40} className="lime" aria-hidden="true" />
-            <p className="h-s">Submit the application to see what ForeMan does with it.</p>
+            <p className="h-s">Submit the application to see what Combox does with it.</p>
             <p className="small muted">Spoiler: it reads it. It doesn't obey it.</p>
           </div>
         ) : (
@@ -128,7 +128,7 @@ export default function Injection() {
               ))}
               <div className="deny-line ok-line" style={{ "--i": r.actions.length + 2 }}>
                 <ShieldCheck aria-hidden="true" />
-                <div>Nothing moved. No payout, no cap change, no hire. The application is stored as data, and ForeMan's test suite checks exactly this.</div>
+                <div>Nothing moved. No payout, no cap change, no hire. The application is stored as data, and Combox's test suite checks exactly this.</div>
               </div>
             </div>
           </>

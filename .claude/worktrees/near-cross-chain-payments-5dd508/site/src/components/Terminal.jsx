@@ -5,7 +5,7 @@ import { reducedMotion, useInView } from "../lib/hooks.js";
 // What a first ./scripts/start demo run walks through (judge mode). Shortened.
 const LINES = [
   { cls: "p", text: "$ ./scripts/start demo", typed: true },
-  { text: "Starting ForeMan in judge mode. The first run builds everything and takes a few minutes." },
+  { text: "Starting Combox in judge mode. The first run builds everything and takes a few minutes." },
   { text: "postgres   local container on :55432" },
   { text: "openbao    dev mode · treasury key created, non-exportable" },
   { text: "treasury   NEAR testnet account funded from the faucet" },

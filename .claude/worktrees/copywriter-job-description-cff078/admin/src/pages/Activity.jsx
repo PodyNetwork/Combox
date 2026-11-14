@@ -97,7 +97,7 @@ export default function Activity() {
 
       <ErrorNote error={error} />
       {loading && <Loading rows={6} />}
-      {data && list.length === 0 && <Empty title="Nothing yet" text="Everything ForeMan tells you about shows up here: firings, blocked payouts, contracts, and daily digests." />}
+      {data && list.length === 0 && <Empty title="Nothing yet" text="Everything Combox tells you about shows up here: firings, blocked payouts, contracts, and daily digests." />}
 
       {list.length > 0 && (
         <div className="grid grid-cols-[minmax(0,1fr)] gap-4 xl:grid-cols-[minmax(0,1fr)_26rem]">

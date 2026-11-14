@@ -1,5 +1,5 @@
-"""Posts agent events to ForeMan's per-meeting callback. The agent never sends
-email or contacts anyone else; only ForeMan does, under its policy engine."""
+"""Posts agent events to Combox's per-meeting callback. The agent never sends
+email or contacts anyone else; only Combox does, under its policy engine."""
 
 from __future__ import annotations
 
@@ -24,7 +24,7 @@ INTERVIEW_KEYS = ("DEEPGRAM_API_KEY", "CARTESIA_API_KEY", "ANTHROPIC_API_KEY", "
 
 
 def fetch_keys(url: str, token: str, timeout: float = 15.0) -> dict:
-    """The company's own AI keys and Claude model for this meeting (set in the ForeMan
+    """The company's own AI keys and Claude model for this meeting (set in the Combox
     dashboard). Keys the company has not set are missing, and the agent uses
     its own from the environment. Any error means: use the agent's own keys."""
     if not url.startswith(("https://", "http://")):

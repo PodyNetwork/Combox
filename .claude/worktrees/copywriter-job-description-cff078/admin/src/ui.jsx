@@ -1,4 +1,4 @@
-// Shared UI primitives for the ForeMan control room, and the app context that
+// Shared UI primitives for the Combox control room, and the app context that
 // tells every page which company it is looking at.
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { request } from "./api.js";
@@ -246,7 +246,7 @@ export function Orb({ className = "", halted = false }) {
 
 // A giant word with the orb punching through it: solid letters behind the
 // orb, an outlined copy in front, so the sphere looks embedded in the type.
-export function Breakthrough({ word = "FOREMAN", halted = false, className = "" }) {
+export function Breakthrough({ word = "COMBOX", halted = false, className = "" }) {
   // 27cqw fits four letters; longer words shrink so they still fill the width.
   return (
     <div className={`breakthrough select-none ${className}`} style={{ "--bt-size": `${Math.min(27, 108 / word.length)}cqw` }} aria-hidden="true">

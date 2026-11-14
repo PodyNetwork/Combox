@@ -1,12 +1,12 @@
 """LiveKit Agents entrypoint. Runs as a Coolify service beside the
-self-hosted LiveKit server and is dispatched explicitly by ForeMan
+self-hosted LiveKit server and is dispatched explicitly by Combox
 (agent name `axom-interviewer`) with the job in the dispatch metadata.
 
 Providers (DECISIONS M6-04): voice is Deepgram alone by default, for both
 speech-to-text and text-to-speech (DEEPGRAM_API_KEY); Cartesia text-to-speech
 is optional (see `voice.py`). LLM Anthropic Claude (ANTHROPIC_API_KEY,
 AXOM_MEET_LLM_MODEL). For each meeting the agent asks
-ForeMan for the company's own keys and Claude model (Integrations, AI models:
+Combox for the company's own keys and Claude model (Integrations, AI models:
 the same ones its AI workers use);
 keys the company has not set come from this agent's environment.
 
@@ -114,7 +114,7 @@ async def entrypoint(ctx: JobContext) -> None:
         return
 
     def emit(event: dict) -> None:
-        # Consent is reported to ForeMan the moment it is given or declined.
+        # Consent is reported to Combox the moment it is given or declined.
         post_event(job.callback_url, job.callback_token, event)
 
     # The company's own keys first, then this agent's environment.

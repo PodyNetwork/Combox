@@ -1,4 +1,4 @@
-# Run ForeMan locally in Docker, with the settings in .env.
+# Run Combox locally in Docker, with the settings in .env.
 #
 #   cp .env.example .env        # fill it in (see README, "Running the real stack")
 #   docker compose up --build   # Postgres, API + scheduler, dashboard, jobs board,

@@ -5,7 +5,7 @@ Order is fixed: AI disclosure -> recording consent -> questions (with at most
 one follow-up each) -> closing. Nothing is asked before consent is recorded.
 A declined (or twice unclear) consent ends the interview with no questions.
 
-Interviews are timed (`Job.max_duration_secs`: ForeMan sends 15 minutes; 10 if missing). In the
+Interviews are timed (`Job.max_duration_secs`: Combox sends 15 minutes; 10 if missing). In the
 last `WRAP_UP_SECS` no new question or follow-up is asked: the next answer
 closes the interview. At the limit, `time_up` closes it whatever the state.
 """

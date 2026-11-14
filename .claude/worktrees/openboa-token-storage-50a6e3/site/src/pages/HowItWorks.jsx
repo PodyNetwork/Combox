@@ -20,7 +20,7 @@ export default function HowItWorks() {
       <PageHero
         eyebrow="How it works"
         lines={["From one mission", "to a self-running company."]}
-        lead="How an autonomous company runs on ForeMan, seen from each seat: the board that sets the mission, the AI agents that run every department, and the freelancers and candidates the AI hires."
+        lead="How an autonomous company runs on Combox, seen from each seat: the board that sets the mission, the AI agents that run every department, and the freelancers and candidates the AI hires."
       />
       <div className="wrap"><AnchorNav items={SECTIONS} /></div>
 
@@ -79,7 +79,7 @@ export default function HowItWorks() {
           <SectionHead eyebrow="Recruiting" title="When no agent can do it, the AI hires someone who can." lead="Logo design, legal review, a voice-over: work that needs a person opens a hiring request, and the AI runs the whole hiring loop on its own, from job post to signed contract." />
           <div className="panel pad-l" data-reveal>
             <ol className="timeline">
-              <li><span className="n">1</span><div><h4>The AI posts the job on ForeMan Jobs</h4><p>The company's own public jobs board (<span className="mono">/jobs</span>). The AI shortlists applicants by skill match and emails them an invitation to a video interview with a calendar invite.</p></div></li>
+              <li><span className="n">1</span><div><h4>The AI posts the job on Combox Jobs</h4><p>The company's own public jobs board (<span className="mono">/jobs</span>). The AI shortlists applicants by skill match and emails them an invitation to a video interview with a calendar invite.</p></div></li>
               <li><span className="n">2</span><div><h4>An AI interview</h4><p>The interviewer says it is an AI, asks to record, asks the job's questions and politely declines to discuss pay. Transcript, summary and rubric scores are stored.</p></div></li>
               <li><span className="n">3</span><div><h4>The AI makes the hire</h4><p>After a good interview the AI sends a contract to sign in DocuSeal. It is always one of the company's pre-approved templates; the AI never writes contract terms.</p></div></li>
               <li><span className="n">4</span><div><h4>Briefs and deliverables</h4><p>Once signed, they get a brief token for the freelancer portal (<span className="mono">/briefs</span>), where they see task briefs and hand in work. Each deliverable is accepted or sent back with notes.</p></div></li>
@@ -88,7 +88,7 @@ export default function HowItWorks() {
             <div className="note mt-m">
               <UsersRound aria-hidden="true" />
               <span>
-                <b className="fog">Why not Upwork?</b> Upwork's terms forbid paying freelancers it introduced outside Upwork unless you pay its conversion fee, so they can't be paid in NEAR. Upwork is still available as an option; those hires are paid through Upwork, and ForeMan blocks NEAR payouts to them.
+                <b className="fog">Why not Upwork?</b> Upwork's terms forbid paying freelancers it introduced outside Upwork unless you pay its conversion fee, so they can't be paid in NEAR. Upwork is still available as an option; those hires are paid through Upwork, and Combox blocks NEAR payouts to them.
               </span>
             </div>
           </div>
@@ -159,7 +159,7 @@ export default function HowItWorks() {
 
       <section className="section" id="modes">
         <div className="wrap">
-          <SectionHead eyebrow="Safe mode" title="Full autonomy, switched on when you say so." lead="The AI runs the company from day one, but ForeMan ships in dry-run on NEAR testnet. Pick a mode to see what each action does." />
+          <SectionHead eyebrow="Safe mode" title="Full autonomy, switched on when you say so." lead="The AI runs the company from day one, but Combox ships in dry-run on NEAR testnet. Pick a mode to see what each action does." />
           <Modes />
         </div>
       </section>

@@ -137,7 +137,7 @@ function Nav({ page }) {
       <header className={`nav ${scrolled || open ? "scrolled" : ""}`}>
         <div className="wrap">
           <nav className="nav-inner" aria-label="Main">
-            <a href="/" className="wordmark" aria-label="ForeMan home"><Mark />ForeMan</a>
+            <a href="/" className="wordmark" aria-label="Combox home"><Mark />Combox</a>
             <ul className="nav-links">
               {NAV.map((n) => (
                 <li key={n.href}><a href={n.href} aria-current={page === n.page ? "page" : undefined}>{n.label}</a></li>
@@ -184,7 +184,7 @@ function Nav({ page }) {
   );
 }
 
-// The ForeMan mark: a hard hat on a lime disc. The hat tips up on hover.
+// The Combox mark: a hard hat on a lime disc. The hat tips up on hover.
 export function Mark() {
   return (
     <svg className="mark" viewBox="0 0 32 32" aria-hidden="true">
@@ -204,7 +204,7 @@ function Footer() {
       <div className="wrap">
         <div className="footer-grid">
           <div>
-            <a href="/" className="wordmark"><Mark />ForeMan</a>
+            <a href="/" className="wordmark"><Mark />Combox</a>
             <p className="muted small mt-m" style={{ maxWidth: "22rem" }}>
               The operating system for fully autonomous companies. AI runs every department; code enforces the limits.
             </p>
@@ -228,7 +228,7 @@ function Footer() {
             <h5>People</h5>
             <ul>
               <li><a href="/talent/">For freelancers</a></li>
-              <li><a href={JOBS_URL}>Open roles (ForeMan Jobs)</a></li>
+              <li><a href={JOBS_URL}>Open roles (Combox Jobs)</a></li>
               <li><a href="/talent/#interview">The AI interview</a></li>
               <li><a href="/talent/#pay">Getting paid in NEAR</a></li>
             </ul>
@@ -243,9 +243,9 @@ function Footer() {
             </ul>
           </div>
         </div>
-        <div className="footer-giant" aria-hidden="true">foreman</div>
+        <div className="footer-giant" aria-hidden="true">combox</div>
         <div className="footer-bottom">
-          <span suppressHydrationWarning>© {new Date().getFullYear()} ForeMan. Run by AI. Bounded by code. Paid on NEAR.</span>
+          <span suppressHydrationWarning>© {new Date().getFullYear()} Combox. Run by AI. Bounded by code. Paid on NEAR.</span>
           <span className="mono">policy {"2026-11-08.1"}</span>
         </div>
       </div>

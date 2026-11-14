@@ -26,7 +26,7 @@ const FAQ = [
 export default function Talent() {
   return (
     <>
-      <PageHero eyebrow="For freelancers and candidates" lines={["Hired by AI.", "Treated fairly.", "Paid in NEAR."]} lead="Companies on ForeMan are run entirely by AI. When their agents need a person, they recruit one. Here's what happens when you apply, and what you can count on.">
+      <PageHero eyebrow="For freelancers and candidates" lines={["Hired by AI.", "Treated fairly.", "Paid in NEAR."]} lead="Companies on Combox are run entirely by AI. When their agents need a person, they recruit one. Here's what happens when you apply, and what you can count on.">
         <div className="row">
           <a className="btn btn-lime btn-lg magnetic" href={JOBS_URL}>Browse open roles <ArrowRight className="arrow" aria-hidden="true" /></a>
           <a className="btn btn-ghost btn-lg" href={BRIEFS_URL}>Freelancer portal</a>
@@ -132,7 +132,7 @@ export default function Talent() {
         <div className="wrap" style={{ maxWidth: 920 }}>
           <SectionHead center eyebrow="6 · Your data and your questions" title="Clear rules, kept." />
           <Faq items={FAQ} />
-          <p className="center mt-m"><a className="link" href="/privacy/">Read how ForeMan handles data</a></p>
+          <p className="center mt-m"><a className="link" href="/privacy/">Read how Combox handles data</a></p>
         </div>
       </section>
     </>

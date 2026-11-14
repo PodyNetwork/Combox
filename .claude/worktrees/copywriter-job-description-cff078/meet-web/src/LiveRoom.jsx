@@ -9,7 +9,7 @@ import { CaptionBand, ControlBar, Wave, initials } from "./Captions.jsx";
 import { Orb } from "./ui.jsx";
 
 const isAgent = (p) => !!p && (p.kind === ParticipantKind.AGENT || /^agent/i.test(p.identity));
-const nameOf = (p, fallback) => (isAgent(p) ? "ForeMan interviewer" : p?.isLocal ? "You" : p?.name || fallback || "Guest");
+const nameOf = (p, fallback) => (isAgent(p) ? "Combox interviewer" : p?.isLocal ? "You" : p?.name || fallback || "Guest");
 
 export default function LiveRoom({ onDeviceIssue = () => {} }) {
   const tracks = useTracks([{ source: Track.Source.Camera, withPlaceholder: true }], { onlySubscribed: false });

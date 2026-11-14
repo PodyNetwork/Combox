@@ -4,7 +4,7 @@
 //! can ask HR to: its `request_hire` tool opens a freelancer hiring request
 //! for the task. The worker never posts, picks, pays, or signs anything. The
 //! hiring pipeline takes the request from there under policy: a job posting
-//! on the configured marketplace (ForeMan's jobs board or Upwork) with an
+//! on the configured marketplace (Combox's jobs board or Upwork) with an
 //! owner-approved contract template, a deterministic shortlist, the AI
 //! interview, and the contract.
 //!
@@ -36,7 +36,7 @@ const MAX_DESCRIPTION_CHARS: usize = 3000;
 pub fn request_hire_tool() -> Value {
     json!({
         "name": REQUEST_HIRE_TOOL,
-        "description": "Ask HR to hire a human freelancer for this task. It opens a hiring request; ForeMan then posts the \
+        "description": "Ask HR to hire a human freelancer for this task. It opens a hiring request; Combox then posts the \
             job on its jobs board (or Upwork, if that's what the company uses) after a policy check, shortlists \
             applicants, runs an AI interview, and sends an owner-approved contract, with no further approval needed; \
             the owner is told when the contract goes out. You don't post, choose, or pay anyone yourself. Use it when \
@@ -144,7 +144,7 @@ pub async fn handle(pool: &PgPool, actor: &Actor, task: &Task, args: &Value, max
     Ok(match routing::open_freelancer_request(pool, actor, task.id, &ask).await? {
         Some(id) => (
             format!(
-                "Hiring request {id} opened for \"{}\" (skills: {}; rate: {}; description: {}). ForeMan posts the job \
+                "Hiring request {id} opened for \"{}\" (skills: {}; rate: {}; description: {}). Combox posts the job \
                  on its next hiring pass after the policy check, with no further approval, then shortlists, \
                  interviews, and sends the contract; the owner is told when the contract goes out. Nothing more is \
                  needed from you for the hire.",

@@ -3,7 +3,7 @@
 // Supabase) accepts a locally minted session token from ./judge/token.sh.
 import { useEffect, useState } from "react";
 import { createClient } from "@supabase/supabase-js";
-import { Breakthrough, Button, ErrorNote, Eyebrow, Icon, Input, KineticText, Segmented } from "./ui.jsx";
+import { Breakthrough, Button, ErrorNote, Eyebrow, Input, KineticText, Segmented } from "./ui.jsx";
 
 export const JUDGE_MODE = import.meta.env.VITE_JUDGE_MODE === "true";
 // Both are baked in at build time; without them sign-in can't work.
@@ -88,69 +88,19 @@ export function signOut() {
 
 export function Wordmark({ className = "" }) {
   return (
-    <a href="/" className={`inline-flex items-center gap-2.5 ${className}`} aria-label="ForeMan home">
+    <a href="/" className={`inline-flex items-center gap-2.5 ${className}`} aria-label="Combox home">
       <svg className="size-7 shrink-0" viewBox="0 0 32 32" aria-hidden="true">
         <circle cx="16" cy="16" r="15" fill="#d4ff3a" />
         <path d="M8.5 18.5a7.5 7.5 0 0 1 15 0z" fill="#07070a" />
         <rect x="5.5" y="18.5" width="21" height="3" rx="1.5" fill="#07070a" />
         <rect x="14.6" y="10.2" width="2.8" height="6.4" rx="1.4" fill="#d4ff3a" />
       </svg>
-      <span className="font-display text-xl font-semibold tracking-tight">ForeMan</span>
+      <span className="font-display text-xl font-semibold tracking-tight">Combox</span>
     </a>
   );
 }
 
-// The guardrails that hold no matter what an agent decides. Each line maps to
-// enforced code: axom-core policy/authz, untrusted.rs, the contract template
-// allowlist in config/policy.toml, and the meet-agent's deterministic guards.
-const GUARDRAILS = [
-  ["No model moves money", "Payouts, hires and firings are decided by fixed rules, never by an LLM."],
-  ["Untrusted input stays data", "Candidate messages and tool output can't become instructions."],
-  ["No improvised contracts", "Agents can only send owner-approved templates."],
-  ["MFA on every approval", "A held payout is released only after your second factor."],
-];
-
-export function GuardrailPill({ className = "" }) {
-  return (
-    <p className={`inline-flex items-center gap-2 rounded-full bg-lime/10 px-3 py-1.5 font-mono text-[11px] uppercase tracking-[0.18em] text-lime ring-1 ring-lime/30 ${className}`}>
-      <span className="pulse-dot rounded-full bg-lime size-1.5" />
-      Safe guardrail on
-    </p>
-  );
-}
-
-function Guardrail({ className = "" }) {
-  return (
-    <section
-      aria-label="Safe guardrail"
-      className={`rounded-2xl border border-lime/25 bg-[radial-gradient(24rem_12rem_at_0%_0%,rgba(212,255,58,0.10),transparent_70%)] p-5 ${className}`}
-    >
-      <div className="flex items-center gap-3">
-        <span className="grid place-items-center rounded-xl bg-lime text-ink size-9">
-          <Icon name="shield" size={20} />
-        </span>
-        <div>
-          <p className="font-display text-base font-semibold leading-tight">Safe guardrail, always on</p>
-          <p className="text-xs text-mute">Agents work inside it. They can't switch it off.</p>
-        </div>
-        <GuardrailPill className="ml-auto hidden xl:inline-flex" />
-      </div>
-      <ul className="mt-4 grid gap-x-5 gap-y-3 border-t border-white/5 pt-4 sm:grid-cols-2">
-        {GUARDRAILS.map(([title, text]) => (
-          <li key={title} className="flex gap-2.5 text-sm">
-            <Icon name="check" size={16} className="mt-0.5 shrink-0 text-lime" />
-            <span>
-              <b className="block font-medium text-fog">{title}</b>
-              <span className="text-xs/relaxed text-mute">{text}</span>
-            </span>
-          </li>
-        ))}
-      </ul>
-    </section>
-  );
-}
-
-// Split screen: the orb punching through "FOREMAN" on one side, the form on the other.
+// Split screen: the orb punching through "COMBOX" on one side, the form on the other.
 export function AuthShell({ step, title, children }) {
   return (
     <div className="relative grid min-h-screen lg:grid-cols-[1.15fr_1fr]">
@@ -166,7 +116,6 @@ export function AuthShell({ step, title, children }) {
           <p className="relative mt-6 max-w-md text-mute">
             Every payout, hire, firing and contract passes a deterministic policy engine. Big payouts wait for you, and a monthly cap and a kill switch keep you in control.
           </p>
-          <Guardrail className="relative mt-8 max-w-md" />
         </div>
         <div className="grid grid-cols-3 gap-6 border-t border-white/5 pt-6 font-mono text-xs text-mute">
           <span><b className="block font-display text-2xl text-fog">2FA</b>on every account</span>
@@ -177,7 +126,6 @@ export function AuthShell({ step, title, children }) {
       <div className="flex flex-col p-6 sm:p-12">
         <div className="lg:hidden"><Wordmark /></div>
         <div className="reveal mx-auto my-auto w-full max-w-sm py-12">
-          <GuardrailPill className="mb-8 lg:hidden" />
           {step && <Eyebrow className="text-lime opacity-100">{step}</Eyebrow>}
           <h2 className="mt-2 mb-8 font-display text-3xl font-semibold tracking-tight">{title}</h2>
           {children}
@@ -360,7 +308,7 @@ export function Mfa({ onDone }) {
         <div className="mb-6 space-y-3 rounded-2xl bg-white/5 p-4 ring-1 ring-white/10">
           <div className="flex items-center gap-4">
             <img alt="QR code for your authenticator app" src={enroll.totp.qr_code} className="w-32 rounded-xl bg-white p-2" />
-            <p className="text-sm text-mute">ForeMan controls payouts, so every account uses an authenticator app. Scan this with Google Authenticator, 1Password or Authy, then enter the 6-digit code.</p>
+            <p className="text-sm text-mute">Combox controls payouts, so every account uses an authenticator app. Scan this with Google Authenticator, 1Password or Authy, then enter the 6-digit code.</p>
           </div>
           <p className="text-xs text-dim">Can't scan? Enter this key: <span className="font-mono text-mute">{enroll.totp.secret}</span></p>
         </div>

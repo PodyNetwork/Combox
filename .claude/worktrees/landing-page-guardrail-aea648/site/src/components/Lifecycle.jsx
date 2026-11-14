@@ -27,7 +27,7 @@ const STEPS = [
     k: "Hire",
     title: "AI recruits the humans it needs.",
     body: "When no agent can do a task, the AI posts the job, interviews applicants by video and sends a contract from your approved templates.",
-    points: ["ForeMan Jobs: the company's public board, no account needed to apply", "Recording consent before any question", "Contracts only from pre-approved templates"],
+    points: ["Combox Jobs: the company's public board, no account needed to apply", "Recording consent before any question", "Contracts only from pre-approved templates"],
     Visual: HireVisual,
   },
   {
@@ -166,7 +166,7 @@ function RouteVisual() {
 
 function HireVisual() {
   const steps = [
-    [ScrollText, "Posted on ForeMan Jobs", "Brand Designer · $25 per task", "sky", "Live"],
+    [ScrollText, "Posted on Combox Jobs", "Brand Designer · $25 per task", "sky", "Live"],
     [Briefcase, "14 applied · 3 shortlisted", "Skill match on the CVs", "violet", "Done"],
     [Video, "AI interview", "Disclosed, consent recorded, 3 questions", "violet", "Scored"],
     [FileSignature, "Contract sent", "freelancer-services-v1 via DocuSeal", "lime", "Signed"],

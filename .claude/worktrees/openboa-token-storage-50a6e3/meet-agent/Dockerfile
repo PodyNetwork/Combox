@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1
-# ForeMan meeting agent (LiveKit Agents worker). Build from meet-agent/ (BuildKit):
+# Combox meeting agent (LiveKit Agents worker). Build from meet-agent/ (BuildKit):
 #   docker build -t axom-meet-agent meet-agent
 FROM python:3.12.15-slim
 RUN useradd --system --uid 10001 --create-home agent

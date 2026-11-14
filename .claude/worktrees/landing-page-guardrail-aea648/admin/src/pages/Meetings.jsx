@@ -34,7 +34,7 @@ export default function Meetings() {
       <p className="reveal -mt-2 mb-6 max-w-2xl text-sm text-mute">AI interviews and meetings. The interviewer always says it's an AI and asks consent before recording.</p>
       <ErrorNote error={error} />
       {loading && <Loading rows={4} />}
-      {data && list.length === 0 && <Empty title="No interviews yet" text="Interviews appear here when ForeMan shortlists candidates. You can also create a room yourself." />}
+      {data && list.length === 0 && <Empty title="No interviews yet" text="Interviews appear here when Combox shortlists candidates. You can also create a room yourself." />}
       {list.length > 0 && (
         <div className="grid gap-4 xl:grid-cols-[minmax(0,22rem)_minmax(0,1fr)]">
           <div className="scrollbar-none -mx-4 flex gap-2 overflow-x-auto px-4 pb-1 sm:-mx-8 sm:px-8 xl:mx-0 xl:block xl:space-y-2 xl:overflow-visible xl:px-0">

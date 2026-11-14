@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # One-time OpenBao setup, run by the OWNER with their admin identity
-# (never by ForeMan). Creates the treasury key, the signer policy, and a token
+# (never by Combox). Creates the treasury key, the signer policy, and a token
 # for axom-signer. The audit log is declared in the server config
 # (openbao.hcl): OpenBao 2.x refuses to enable audit devices through the API.
 #

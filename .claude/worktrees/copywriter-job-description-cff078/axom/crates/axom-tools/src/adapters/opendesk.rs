@@ -66,7 +66,7 @@ impl OpendeskCrm {
         let path = format!("/contacts/{}", urlencode(contact_id));
         let current = self.http.send(Method::GET, &path, None, json!({ "id": contact_id, "notes": "" })).await?;
         let old = current["notes"].as_str().unwrap_or("").trim_end();
-        let entry = format!("[{} · ForeMan]\n{}", chrono::Utc::now().format("%Y-%m-%d %H:%M UTC"), text.trim());
+        let entry = format!("[{} · Combox]\n{}", chrono::Utc::now().format("%Y-%m-%d %H:%M UTC"), text.trim());
         let notes = if old.is_empty() { entry } else { format!("{old}\n\n{entry}") };
         self.http.send(Method::PATCH, &path, Some(json!({ "notes": notes })), json!({ "id": contact_id })).await?;
         Ok(contact_id.to_string())

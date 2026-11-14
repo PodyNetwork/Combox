@@ -1,4 +1,4 @@
-// Client for the ForeMan API. Every call carries the Supabase access token.
+// Client for the Combox API. Every call carries the Supabase access token.
 // On the multi-tenant platform, company endpoints live under /t/<company>.
 export const API = (import.meta.env.VITE_AXOM_API_URL || "http://localhost:8080").replace(/\/$/, "");
 
@@ -13,7 +13,7 @@ export async function request(session, url, { method = "GET", body } = {}) {
     res = await fetch(url, { method, headers, body: body ? JSON.stringify(body) : undefined });
   } catch {
     // fetch only throws on network failure (server down, CORS, offline).
-    throw new Error(`Can't reach the ForeMan API at ${API}. Check that it's running and that this site is allowed by AXOM_CORS_ORIGINS.`);
+    throw new Error(`Can't reach the Combox API at ${API}. Check that it's running and that this site is allowed by AXOM_CORS_ORIGINS.`);
   }
   const data = await res.json().catch(() => ({}));
   if (res.status === 401 && session) window.dispatchEvent(new CustomEvent(UNAUTHORIZED_EVENT));
@@ -27,7 +27,7 @@ export async function download(session, url, filename) {
   try {
     res = await fetch(url, { headers: session ? { Authorization: `Bearer ${session.access_token}` } : {} });
   } catch {
-    throw new Error(`Can't reach the ForeMan API at ${API}.`);
+    throw new Error(`Can't reach the Combox API at ${API}.`);
   }
   if (res.status === 401 && session) window.dispatchEvent(new CustomEvent(UNAUTHORIZED_EVENT));
   if (!res.ok) {

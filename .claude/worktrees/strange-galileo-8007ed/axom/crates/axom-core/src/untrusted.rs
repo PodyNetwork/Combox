@@ -1,7 +1,7 @@
 //! Wrapper for untrusted data (candidate messages, applications, transcripts,
 //! tool outputs). The content can be rendered into an LLM prompt only inside a
 //! clearly delimited block labeled untrusted, and it is never parsed as
-//! instructions by ForeMan's deterministic code.
+//! instructions by Combox's deterministic code.
 
 use serde::{Deserialize, Serialize};
 

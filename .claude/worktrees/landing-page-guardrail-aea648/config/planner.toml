@@ -4,7 +4,7 @@
 version = "2026-11-08.1"
 fallback_department = "Operations"
 
-# Tools ForeMan knows about. Roles and tasks may reference only these.
+# Tools Combox knows about. Roles and tasks may reference only these.
 known_tools = ["code_repo", "web_research", "postiz", "warmbly", "crm", "docuseal", "smtp", "upwork", "task_intake"]
 
 [[departments]]

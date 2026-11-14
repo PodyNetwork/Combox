@@ -15,7 +15,7 @@ const ENV_STEPS = [
   { t: "Minimum: the company's core, jobs board, dashboard, hiring loop", d: "DATABASE_URL (Postgres; tables are created on first start) and AXOM_OWNER_EMAIL. AXOM_LIVE=false keeps every adapter in dry-run.", code: "cp .env.example .env" },
   { t: "Board sign-in and escalations", d: "Supabase URL and JWKS (or JWT secret), the dashboard's Supabase anon key, TOTP MFA enabled, yourself in axom.admins, and two key pairs from axom keygen for attestations and approvals.", code: "cd axom && cargo run -p axom-bin -- keygen" },
   { t: "Payouts on NEAR testnet", d: "Run and initialise OpenBao, then the treasury setup script. It prints the treasury address (fund it with testnet NEAR) and the signer token, which goes in OPENBAO_TOKEN (never a file). Add a CoinGecko key for the NEAR price.", code: "infra/openbao/setup-treasury.sh" },
-  { t: "AI interviews", d: "LiveKit and the AI interviewer ship with ForeMan and start with Docker. Add the speech and Claude keys from the dashboard (Integrations → AI models) and public URLs candidates can reach." },
+  { t: "AI interviews", d: "LiveKit and the AI interviewer ship with Combox and start with Docker. Add the speech and Claude keys from the dashboard (Integrations → AI models) and public URLs candidates can reach." },
   { t: "Email, contracts, tax forms, CRM", d: "SMTP, DocuSeal with your approved template ids, and the CRM. Connect MCP servers for the AI workforce on the dashboard's Tools page. Still dry-run." },
   { t: "Live", d: "AXOM_LIVE=true lets the company act in the real world. Only after your legal review. Mainnet additionally needs NEAR_NETWORK=mainnet and an explicit NEAR_RPC_URL." },
 ];
@@ -61,7 +61,7 @@ export default function GetStarted() {
       </section>
       <section className="section">
         <div className="wrap">
-          <SectionHead eyebrow="For AI clients" title="Plug the company's meetings into your own assistant." lead="ForeMan serves an MCP endpoint with meeting tools only: create_meeting, dispatch_agent, get_transcript, get_summary, send_summary. Approvals, the cap, the kill switch and policy are never exposed." />
+          <SectionHead eyebrow="For AI clients" title="Plug the company's meetings into your own assistant." lead="Combox serves an MCP endpoint with meeting tools only: create_meeting, dispatch_agent, get_transcript, get_summary, send_summary. Approvals, the cap, the kill switch and policy are never exposed." />
           <div data-reveal style={{ maxWidth: 860 }}>
             <CodeBlock code={'# Claude Code, for example\nclaude mcp add --transport http axom https://api.example.com/mcp \\\n  --header "Authorization: Bearer $AXOM_MCP_TOKEN"'} />
           </div>
@@ -77,7 +77,7 @@ function Demo() {
       <div className="stack" style={{ gap: 24 }}>
         <div>
           <h2 className="h-m">Judge mode: a company running itself, locally.</h2>
-          <p className="muted mt-s">Builds and starts everything, lets the AI run the company through the demo scenario and opens the ForeMan website in your browser; its Sign in takes you straight into the dashboard. Outside services are mocked; payouts are real, on NEAR testnet.</p>
+          <p className="muted mt-s">Builds and starts everything, lets the AI run the company through the demo scenario and opens the Combox website in your browser; its Sign in takes you straight into the dashboard. Outside services are mocked; payouts are real, on NEAR testnet.</p>
         </div>
         <div>
           <div className="small muted">You'll need</div>
@@ -188,7 +188,7 @@ function Platform() {
   return (
     <div className="grid-2" style={{ alignItems: "start" }}>
       <div className="stack" style={{ gap: 20 }}>
-        <h2 className="h-m">Your autonomous company on hosted ForeMan.</h2>
+        <h2 className="h-m">Your autonomous company on hosted Combox.</h2>
         <p className="muted">The AI runs every department exactly as it does self-hosted (strategy, hiring, interviews, payroll, reviews), inside the same limits (the $50 escalation threshold, your own monthly cap, the kill switch), separately for each company.</p>
         <div className="row">
           <a className="btn btn-lime btn-lg magnetic" href={DASHBOARD_HOME}>Launch your company <ArrowRight className="arrow" aria-hidden="true" /></a>
@@ -209,9 +209,9 @@ function Coolify() {
     ["Install Coolify", "On an Ubuntu 22.04+ VPS with Docker. Point DNS at it and turn on automatic TLS, security updates and encrypted S3 backups for every database."],
     ["Supabase", "Add Coolify's Supabase service, enable TOTP MFA in Auth, create your admin user and add yourself to axom.admins."],
     ["OpenBao", "Deploy it with TLS, initialise once, keep the unseal keys and root token offline, unseal, then run the treasury setup script and fund the printed address with at most a month's budget."],
-    ["LiveKit", "Part of the ForeMan service definition, with host networking. Open TCP 7880–7881, UDP 50000–60000 and TURN on UDP 3478 / TLS 5349."],
+    ["LiveKit", "Part of the Combox service definition, with host networking. Open TCP 7880–7881, UDP 50000–60000 and TURN on UDP 3478 / TLS 5349."],
     ["DocuSeal and opendesk", "Deploy DocuSeal and set up opendesk, hosted or your own (and Postiz if your agents will post). Create your approved templates: freelancer contract, termination notice, W-9, W-8BEN."],
-    ["ForeMan", "Generate the authorization keys, paste every variable into Coolify's environment editor, add the signer token and deploy the API, signer, meeting agent, dashboard and participant site."],
+    ["Combox", "Generate the authorization keys, paste every variable into Coolify's environment editor, add the signer token and deploy the API, signer, meeting agent, dashboard and participant site."],
   ];
   return (
     <div className="grid-2" style={{ alignItems: "start" }}>

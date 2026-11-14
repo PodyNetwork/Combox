@@ -1,7 +1,7 @@
 //! Gates before a worker's payouts: a NEAR address verified by challenge
 //! signature, a tax form (W-9 or W-8BEN, collected via DocuSeal) on file,
 //! and not hired through Upwork (those are paid through Upwork).
-//! Workers bring their own addresses; ForeMan never holds worker keys.
+//! Workers bring their own addresses; Combox never holds worker keys.
 
 use axom_core::audit::{self, AuditEvent};
 use axom_core::domain::Actor;
@@ -57,7 +57,7 @@ pub async fn issue_challenge(
     let nonce = Uuid::new_v4().simple();
     let expires_at = now + Duration::minutes(CHALLENGE_TTL_MINUTES);
     let message = format!(
-        "ForeMan address verification\nnetwork: {network}\naccount: {account_id}\nworker: {worker_id}\nnonce: {nonce}\nexpires: {}",
+        "Combox address verification\nnetwork: {network}\naccount: {account_id}\nworker: {worker_id}\nnonce: {nonce}\nexpires: {}",
         expires_at.to_rfc3339()
     );
     sqlx::query(
@@ -220,7 +220,7 @@ pub enum GateBlock {
     AddressUnverified,
     TaxFormMissing,
     /// Hired through Upwork: Upwork's terms forbid paying off-platform
-    /// (without a conversion fee), so ForeMan never pays them in NEAR.
+    /// (without a conversion fee), so Combox never pays them in NEAR.
     HiredViaUpwork,
 }
 

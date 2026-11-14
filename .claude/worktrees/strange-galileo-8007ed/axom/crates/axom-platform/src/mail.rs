@@ -44,13 +44,13 @@ impl PlatformMail {
     pub async fn invite(&self, to: &str, company: &str, inviter: &str) -> anyhow::Result<()> {
         let to = to.to_string();
         let body = format!(
-            "{inviter} invited you to help manage {company} on ForeMan.\n\n\
+            "{inviter} invited you to help manage {company} on Combox.\n\n\
              To join, open {dashboard} and create an account (or sign in) with this email address, {to}. \
              You'll set up two-factor authentication with an authenticator app, then {company} appears in your list of companies.\n\n\
              If you weren't expecting this, you can ignore this email.",
             dashboard = self.dashboard(),
         );
-        let email = Email { to: vec![to.clone()], subject: format!("You're invited to {company} on ForeMan"), body, ics: None };
+        let email = Email { to: vec![to.clone()], subject: format!("You're invited to {company} on Combox"), body, ics: None };
         self.send(Action::SendExternalMessage { recipients: vec![to.clone()], allowed_recipients: vec![to] }, "send_external_message", email).await
     }
 
@@ -62,7 +62,7 @@ impl PlatformMail {
             Subscription::Trial { ends_at } if soon(ends_at) => Some((
                 "trial_ending",
                 ends_at,
-                format!("Your ForeMan trial for {} ends {}", t.name, day(ends_at)),
+                format!("Your Combox trial for {} ends {}", t.name, day(ends_at)),
                 format!(
                     "Your free trial for {} ends on {}. To keep your AI workers, hiring, and payroll running, pay for a subscription in NEAR here:\n{billing}\n\nAfter the trial, automation pauses until you pay; your data is kept.",
                     t.name,
@@ -72,13 +72,13 @@ impl PlatformMail {
             Subscription::Active { paid_until } if soon(paid_until) => Some((
                 "subscription_ending",
                 paid_until,
-                format!("Your ForeMan subscription for {} ends {}", t.name, day(paid_until)),
+                format!("Your Combox subscription for {} ends {}", t.name, day(paid_until)),
                 format!("Your subscription for {} is paid until {}. Renew in NEAR here:\n{billing}", t.name, day(paid_until)),
             )),
             Subscription::Expired { since } => Some((
                 "expired",
                 since,
-                format!("{} is paused on ForeMan", t.name),
+                format!("{} is paused on Combox", t.name),
                 format!(
                     "The subscription for {} ended on {}, so its AI workers, hiring, and payroll are paused. Your data is kept. Renew in NEAR to resume:\n{billing}",
                     t.name,

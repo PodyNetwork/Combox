@@ -140,7 +140,7 @@ pub async fn deliver_pending(pool: &PgPool, policy_cfg: &PolicyConfig, cfg: &Not
         anyhow::bail!("owner notifications cannot be emailed: {}", decision.reason);
     };
     for n in pending {
-        let email = Email { to: vec![cfg.owner_email.clone()], subject: format!("[ForeMan] {}", n.subject), body: render_email(&n, cfg), ics: None };
+        let email = Email { to: vec![cfg.owner_email.clone()], subject: format!("[Combox] {}", n.subject), body: render_email(&n, cfg), ics: None };
         match mailer.send(&auth, &email).await {
             Ok(_) => {
                 sqlx::query("UPDATE axom.owner_notifications SET email_sent_at = now(), delivered_at = now(), attempts = attempts + 1 WHERE id = $1")

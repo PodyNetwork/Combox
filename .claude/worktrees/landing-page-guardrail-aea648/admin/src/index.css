@@ -1,6 +1,6 @@
 @import "tailwindcss";
 
-/* ForeMan control room. Dark ink canvas, one glowing orb, bento panels, and
+/* Combox control room. Dark ink canvas, one glowing orb, bento panels, and
    three signal colours: lime = money moving / healthy, ember = held, halted
    or fired, violet = AI agents (sky = human freelancers). */
 @theme {

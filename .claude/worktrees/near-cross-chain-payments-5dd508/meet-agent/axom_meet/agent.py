@@ -1,23 +1,23 @@
 """LiveKit Agents entrypoint. Runs as a Coolify service beside the
-self-hosted LiveKit server and is dispatched explicitly by ForeMan
+self-hosted LiveKit server and is dispatched explicitly by Combox
 (agent name `axom-interviewer`) with the job in the dispatch metadata.
 
 Providers (DECISIONS M6-04): voice is Deepgram alone by default, for both
 speech-to-text and text-to-speech (DEEPGRAM_API_KEY); Cartesia text-to-speech
 is optional (see `voice.py`). LLM Anthropic Claude (ANTHROPIC_API_KEY,
 AXOM_MEET_LLM_MODEL). For each meeting the agent asks
-ForeMan for the company's own keys and Claude model (Integrations, AI models:
+Combox for the company's own keys and Claude model (Integrations, AI models:
 the same ones its AI workers use);
 keys the company has not set come from this agent's environment.
 
 Interviews are timed: the agent waits for the candidate only until the join
-link expires, and ends the interview at `max_duration_secs` (15 minutes, sent by ForeMan).
+link expires, and ends the interview at `max_duration_secs` (15 minutes, sent by Combox).
 
 Questions: while the agent introduces itself and asks for consent, Claude
 writes the interview questions from the role (`interview.plan_questions`);
 the owner's own questions, if any, come first.
 
-Presence (DECISIONS M6-14): ForeMan sends the agent whenever someone joins
+Presence (DECISIONS M6-14): Combox sends the agent whenever someone joins
 an open meeting and it is not in the room. While the call runs, the agent
 follows whoever is still in the room when the person it was talking to
 leaves, and welcomes people back after a dropped connection.
@@ -27,8 +27,8 @@ questions asked, time up, consent declined, or the participant asks to end
 it) the agent says goodbye, closes its session and deletes the room, which
 disconnects the participant. The same happens when the last person in the
 room leaves (the Leave button), or when the room has stayed empty for
-`EMPTY_ROOM_GRACE_SECS` after a dropped connection. Either way ForeMan gets
-the outcome before the job exits (results, or "no consent"), and ForeMan
+`EMPTY_ROOM_GRACE_SECS` after a dropped connection. Either way Combox gets
+the outcome before the job exits (results, or "no consent"), and Combox
 then expires the meeting's join links.
 
 The LLM never drives the conversation: every spoken line comes from
@@ -61,7 +61,7 @@ REPORT_TIMEOUT_SECS = 120
 EMPTY_ROOM_GRACE_SECS = 120
 # How long the consent answer may wait for the questions being written.
 QUESTIONS_WAIT_SECS = 20
-# Attempts to report an event to ForeMan before giving up.
+# Attempts to report an event to Combox before giving up.
 CALLBACK_ATTEMPTS = 3
 # Leaving on purpose (the Leave button, or the room being deleted), as
 # opposed to a dropped connection.
@@ -83,8 +83,8 @@ class ClaudeLLM:
 
 
 def post_with_retry(job: Job, event: dict) -> bool:
-    """Post an event to ForeMan, retrying briefly. A failure is logged, never
-    raised: it must not keep the call open (ForeMan's expiry sweep closes a
+    """Post an event to Combox, retrying briefly. A failure is logged, never
+    raised: it must not keep the call open (Combox's expiry sweep closes a
     meeting that never reports)."""
     for attempt in range(1, CALLBACK_ATTEMPTS + 1):
         try:
@@ -187,7 +187,7 @@ class Interviewer(Agent):
         await self._finish()
 
     async def report(self) -> None:
-        """Give ForeMan the outcome, once, however the call ended: results if
+        """Give Combox the outcome, once, however the call ended: results if
         consent was given, otherwise a recorded "no consent"."""
         if self._reported:
             return
@@ -222,7 +222,7 @@ async def entrypoint(ctx: JobContext) -> None:
         return
 
     def emit(event: dict) -> None:
-        # Consent is reported to ForeMan the moment it is given or declined.
+        # Consent is reported to Combox the moment it is given or declined.
         post_with_retry(job, event)
 
     # The company's own keys first, then this agent's environment.
@@ -242,7 +242,7 @@ async def entrypoint(ctx: JobContext) -> None:
     log.info("meeting %s: voice stt=deepgram tts=%s, limit %ss", job.meeting_id, tts_provider(key), job.max_duration_secs)
     session = AgentSession(stt=build_stt(key), tts=build_tts(key), vad=silero.VAD.load())
     interviewer = Interviewer(interview, questions)
-    # However the call ends, ForeMan gets the outcome before the job exits.
+    # However the call ends, Combox gets the outcome before the job exits.
     ctx.add_shutdown_callback(interviewer.report)
 
     async def close_room() -> None:

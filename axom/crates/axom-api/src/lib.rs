@@ -144,7 +144,7 @@ pub fn routes(state: AppState) -> Router {
         .route("/intake/briefs/{task_id}/review", post(intake::review_deliverable))
         .route("/workers/{id}/intake-token", post(intake::new_worker_token))
         // Meetings: participant join links and the meeting agent's callback.
-        // Public jobs board (ForeMan Jobs): no sign-in.
+        // Public jobs board (Combox Jobs): no sign-in.
         .route("/jobs", get(jobs::list))
         .route("/jobs/{id}", get(jobs::get))
         // Room for a 5 MB CV plus the form.

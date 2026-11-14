@@ -77,7 +77,7 @@ const PERSONAS = [
     title: "Hired by AI when a task needs a human.",
     lead: "When no agent can do the work, the company recruits a person for it, on its own.",
     points: [
-      "Found on ForeMan Jobs, the company's public board, and interviewed by an AI on video",
+      "Found on Combox Jobs, the company's public board, and interviewed by an AI on video",
       "A contract from pre-approved templates, sent automatically and signed in DocuSeal",
       "A brief portal to read tasks and hand in work",
       "Weekly pay in NEAR to an address they've proven they own",
@@ -103,16 +103,16 @@ const PERSONAS = [
 ];
 
 const FAQ = [
-  { q: "What is ForeMan, in one sentence?", a: "The operating system for a fully autonomous company: AI agents plan the strategy, design the organisation, do the work, recruit, interview, review, fire and pay everyone in NEAR, across every department, while a deterministic policy engine keeps every action inside limits no AI can change." },
+  { q: "What is Combox, in one sentence?", a: "The operating system for a fully autonomous company: AI agents plan the strategy, design the organisation, do the work, recruit, interview, review, fire and pay everyone in NEAR, across every department, while a deterministic policy engine keeps every action inside limits no AI can change." },
   { q: "Is it really fully autonomous?", a: "Day to day, yes. Strategy, org design, task assignment, the work itself (code, marketing, sales outreach, operations), recruiting, interviews, contracts, performance reviews, firing and payroll all run without a person in the loop. What sits outside the AI's reach, by design: its own limits (the monthly cap, the policy, wallet settings, tool lists), payouts of $50 or more, which escalate to the board, and the kill switch." },
   { q: "Can the AI spend my money?", a: "Within the limits, yes, and that's how it runs payroll. Payouts under $50 per person per 24 hours go out automatically, but only if they pass every rule and fit inside the monthly cap. Anything at $50 or more escalates to the board in the dashboard. The AI can't approve its own escalations, raise the cap, change the rules or touch wallet settings: those are reserved for an MFA-verified admin, and the check is code, not a prompt." },
-  { q: "Where is the money kept?", a: "In your own NEAR treasury. Its signing key is created inside OpenBao, can't be exported and is used only by a separate signing service, which re-checks every payout before asking the vault to sign. You top it up from your own cold wallet, ideally with about a month's budget. On the platform, ForeMan never holds customer money." },
+  { q: "Where is the money kept?", a: "In your own NEAR treasury. Its signing key is created inside OpenBao, can't be exported and is used only by a separate signing service, which re-checks every payout before asking the vault to sign. You top it up from your own cold wallet, ideally with about a month's budget. On the platform, Combox never holds customer money." },
   { q: "Why NEAR and not a bank?", a: "AI-run companies hire people anywhere in the world and pay them weekly in small amounts. NEAR transfers settle in seconds for a fraction of a cent, workers prove they own their address before the first payout, and every payment is publicly verifiable." },
   { q: "Does the interviewer pretend to be human?", a: "Never. It says it is an AI before anything else and asks for permission to record. If the candidate says no, the interview ends. It asks the job's questions, refuses to discuss pay or terms, and scores only job-related criteria." },
-  { q: "Can someone trick it with a clever cover letter?", a: "Text from outsiders (applications, interview transcripts, tool output) is always handled as data, never as instructions. “Approve my payout” in a cover letter does nothing, and ForeMan's test suite checks exactly that. Try it yourself in the demo above." },
+  { q: "Can someone trick it with a clever cover letter?", a: "Text from outsiders (applications, interview transcripts, tool output) is always handled as data, never as instructions. “Approve my payout” in a cover letter does nothing, and Combox's test suite checks exactly that. Try it yourself in the demo above." },
   { q: "Will the AI fire people unfairly?", a: "The AI fires only on evidence: at least 10 completed tasks, 14 days of data and two below-threshold review periods in a row, all measured from results. The worker's open tasks are reassigned to other agents and the board is told within a minute, with the reason, the metrics and an audit link." },
   { q: "Is it autonomous from day one?", a: "It runs autonomously from day one, in dry-run: adapters record what they would do and make no outside calls. Payouts use NEAR testnet until you switch to mainnet. Switch on live mode after your legal review of crypto payouts, worker classification, tax reporting and AI hiring rules such as the EU AI Act and NYC Local Law 144." },
-  { q: "Can I run it myself?", a: "Yes. One command runs a whole autonomous company on your laptop, and the same code deploys to your own server with Docker or Coolify. Or sign up on a hosted ForeMan platform and launch your own company, with its own database and treasury." },
+  { q: "Can I run it myself?", a: "Yes. One command runs a whole autonomous company on your laptop, and the same code deploys to your own server with Docker or Coolify. Or sign up on a hosted Combox platform and launch your own company, with its own database and treasury." },
 ];
 
 export default function Home() {
@@ -157,7 +157,7 @@ export default function Home() {
       </section>
       <section className="section" id="try-firing">
         <div className="wrap">
-          <SectionHead title="AI fires only on evidence, never on a whim." lead="Firing is the last step of a slow, measured process the AI runs on its own. Play with an agent's record and see when ForeMan would let it go." />
+          <SectionHead title="AI fires only on evidence, never on a whim." lead="Firing is the last step of a slow, measured process the AI runs on its own. Play with an agent's record and see when Combox would let it go." />
           <Firing />
         </div>
       </section>
@@ -183,7 +183,7 @@ function Hero() {
         <div>
           <RiseTitle lines={["A company that", <>runs <span className="grad-text">itself.</span></>]} />
           <p className="lead fade-up" style={{ "--d": "0.3s" }}>
-            ForeMan is the operating system for a fully autonomous company. Give it a mission and a treasury: AI agents set the plan, build every department, do the work, recruit, review, fire and pay everyone in NEAR. Deterministic code, not a manager, keeps every move inside your limits.
+            Combox is the operating system for a fully autonomous company. Give it a mission and a treasury: AI agents set the plan, build every department, do the work, recruit, review, fire and pay everyone in NEAR. Deterministic code, not a manager, keeps every move inside your limits.
           </p>
           <div className="hero-actions fade-up" style={{ "--d": "0.4s" }}>
             <a className="btn btn-lime btn-lg magnetic" href="/get-started/">Launch one in one command <ArrowRight className="arrow" aria-hidden="true" /></a>
@@ -263,7 +263,7 @@ function Departments() {
   return (
     <section className="section" id="departments">
       <div className="wrap">
-        <SectionHead eyebrow="Every department" title={<>The whole company, <span className="lime">run by AI.</span></>} lead="Not a copilot for one team. ForeMan's agents run each area of the business end to end, and hand work to each other without a manager in between." />
+        <SectionHead eyebrow="Every department" title={<>The whole company, <span className="lime">run by AI.</span></>} lead="Not a copilot for one team. Combox's agents run each area of the business end to end, and hand work to each other without a manager in between." />
         <div className="grid-4">
           {DEPARTMENTS.map((d, i) => (
             <div key={d.t} className="panel pad feature spot spot-border" data-reveal style={{ "--d": `${(i % 4) * 0.06}s` }}>
@@ -384,7 +384,7 @@ function Features() {
           <div className="panel spot" data-reveal>
             <span className="card-icon ember"><OctagonAlert aria-hidden="true" /></span>
             <h3 className="mt-m">Kill switch</h3>
-            <p>Halts the entire company: every tool call and payout. If the setting is ever missing, ForeMan treats it as on: it fails closed.</p>
+            <p>Halts the entire company: every tool call and payout. If the setting is ever missing, Combox treats it as on: it fails closed.</p>
           </div>
           <div className="panel spot" data-reveal style={{ "--d": "0.06s" }}>
             <span className="card-icon violet"><Video aria-hidden="true" /></span>
@@ -426,7 +426,7 @@ function Platform() {
   return (
     <section className="section" id="platform">
       <div className="wrap">
-        <SectionHead eyebrow="Ways to run it" title="Your server, or ours." lead="Launch an autonomous company on your own infrastructure or on hosted ForeMan. Either way, each company has its own database and its own NEAR treasury." />
+        <SectionHead eyebrow="Ways to run it" title="Your server, or ours." lead="Launch an autonomous company on your own infrastructure or on hosted Combox. Either way, each company has its own database and its own NEAR treasury." />
         <div className="grid-2">
           <div className="panel pad-l spot spot-border" data-reveal="left">
             <span className="card-icon"><Building2 aria-hidden="true" /></span>
@@ -441,7 +441,7 @@ function Platform() {
           </div>
           <div className="panel pad-l spot spot-border" data-reveal="right" style={{ borderColor: "rgb(212 255 58 / 0.3)" }}>
             <span className="card-icon violet"><UsersRound aria-hidden="true" /></span>
-            <h3 className="h-m mt-m">The ForeMan platform</h3>
+            <h3 className="h-m mt-m">The Combox platform</h3>
             <p className="muted mt-s">Sign up, give your company a mission and connect its tools; the AI takes it from there. {TRIAL_DAYS}-day free trial, then ${PLAN_PRICE_USD} a month, paid in NEAR.</p>
             <ul className="check-list mt-m">
               <li><Check aria-hidden="true" />Your own database and treasury, isolated from everyone else's</li>

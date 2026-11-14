@@ -1,4 +1,4 @@
-//! ForeMan core domain: plans, org chart, workers, tasks, payouts, state
+//! Combox core domain: plans, org chart, workers, tasks, payouts, state
 //! machines, the append-only audit log, and the untrusted-data wrapper.
 
 pub mod audit;

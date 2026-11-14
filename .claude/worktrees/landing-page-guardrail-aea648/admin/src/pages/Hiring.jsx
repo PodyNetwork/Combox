@@ -32,7 +32,7 @@ export default function Hiring() {
           View board <Icon name="external" size={15} />
         </a>
       </PageHead>
-      <p className="reveal -mt-2 mb-6 max-w-2xl text-sm text-mute">When no one on the team can do a task, ForeMan posts a job on your board and runs the hiring for you.</p>
+      <p className="reveal -mt-2 mb-6 max-w-2xl text-sm text-mute">When no one on the team can do a task, Combox posts a job on your board and runs the hiring for you.</p>
 
       <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_24rem]">
         <div className="min-w-0 space-y-4">

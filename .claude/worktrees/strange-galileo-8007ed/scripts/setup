@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Set up your own ForeMan (Docker, one company): asks for your Supabase
+# Set up your own Combox (Docker, one company): asks for your Supabase
 # details, writes .env (keys are generated for you), then starts it with
 # ./scripts/start. Safe to run again: values already in .env are kept.
 #
@@ -55,7 +55,7 @@ ensure_docker() {
 
 # --- Payouts (NEAR testnet) ---------------------------------------------------------
 # OpenBao (in Docker, payouts profile) holds the treasury key; the signer is
-# the only part of ForeMan that can use it. Done once. The signer's token is
+# the only part of Combox that can use it. Done once. The signer's token is
 # kept in .env as OPENBAO_TOKEN (git-ignored, only the signer container gets
 # it), never in a file of its own. OpenBao's unseal key is kept in secrets/
 # (git-ignored), so ./scripts/start can unseal OpenBao after a restart: fine
@@ -118,10 +118,10 @@ setup_payouts() {
     token="$(echo "$out" | tail -1 | tr -d '[:space:]')"; unset out
     [[ -n "$token" ]] || fail "Creating the signer's OpenBao token failed." "Run ./scripts/setup again."
     set_env OPENBAO_TOKEN "$token"; unset token
-    # The signer's token is all ForeMan needs: retire the admin token.
+    # The signer's token is all Combox needs: retire the admin token.
     BAO_TOKEN="$root_token" bao token revoke -self >/dev/null; unset root_token
     say "Payouts are set up. Treasury (NEAR testnet): $treasury"
-    echo "Fund it with ./scripts/fund-testnet once ForeMan is running (faucets refuse a new treasury). The dashboard shows it too."
+    echo "Fund it with ./scripts/fund-testnet once Combox is running (faucets refuse a new treasury). The dashboard shows it too."
     echo "Back up .env (OPENBAO_TOKEN) and the secrets/ folder: without them, the treasury key can't be used."
   fi
 }
@@ -201,8 +201,8 @@ keygen() {
   else docker compose run --rm --no-deps -T axom axom "$@"; fi
 }
 if [[ -z "$(get_env AXOM_ATTESTATION_SIGNING_KEY)" || -z "$(get_env AXOM_APPROVAL_SIGNING_KEY)" || -z "$(get_env AXOM_SECRETS_KEY)" ]]; then
-  step "Generating ForeMan's keys"
-  [[ -x "$ROOT/axom/target/debug/axom" ]] || echo "(building the ForeMan image first; this takes a few minutes the first time)"
+  step "Generating Combox's keys"
+  [[ -x "$ROOT/axom/target/debug/axom" ]] || echo "(building the Combox image first; this takes a few minutes the first time)"
   for kind in ATTESTATION APPROVAL; do
     if [[ -z "$(get_env AXOM_${kind}_SIGNING_KEY)" ]]; then
       out="$(keygen keygen)"

@@ -3,7 +3,7 @@
 //! One plan with a free trial. To pay, a company opens an invoice: the plan's
 //! USD price converted to NEAR at the current rate, payable to the platform's
 //! account within 24 hours. The customer sends the NEAR from any wallet and
-//! submits the transaction hash with the sending account. ForeMan checks the
+//! submits the transaction hash with the sending account. Combox checks the
 //! transaction on NEAR itself (receiver, sender, amount, success, time) and
 //! that the hash hasn't paid another invoice, then extends the subscription.
 //! Nothing a customer types is trusted.
@@ -45,7 +45,7 @@ impl PlanConfig {
     pub fn from_env() -> Self {
         let get = |k: &str| std::env::var(k).ok().filter(|v| !v.is_empty());
         Self {
-            name: get("AXOM_PLAN_NAME").unwrap_or_else(|| "ForeMan".into()),
+            name: get("AXOM_PLAN_NAME").unwrap_or_else(|| "Combox".into()),
             price_usd: get("AXOM_PLAN_PRICE_USD").and_then(|v| v.parse().ok()).unwrap_or(Decimal::from(49)),
             trial_days: get("AXOM_TRIAL_DAYS").and_then(|v| v.parse().ok()).unwrap_or(14),
             pay_to: get("AXOM_BILLING_ACCOUNT"),

@@ -1,4 +1,4 @@
-# OpenBao for your own ForeMan in Docker (docker-compose.yml, payouts
+# OpenBao for your own Combox in Docker (docker-compose.yml, payouts
 # profile). ./scripts/setup initializes it and creates the treasury key;
 # ./scripts/start unseals it. Storage and the audit log live in Docker
 # volumes, in the folders the image makes writable.

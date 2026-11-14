@@ -1,5 +1,5 @@
 //! Testnet-only stand-in for the owner's cold-wallet top-up of the treasury.
-//! Signs a transfer with a local key (the owner's, never ForeMan's) and sends it.
+//! Signs a transfer with a local key (the owner's, never Combox's) and sends it.
 //!
 //!   COLD_KEY_FILE=cold.env COLD_ACCOUNT=me.testnet TO=<treasury implicit account> AMOUNT_NEAR=1 \
 //!   cargo run -p axom-signer --example testnet_fund

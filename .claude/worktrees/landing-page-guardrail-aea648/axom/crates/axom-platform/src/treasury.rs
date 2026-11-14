@@ -1,6 +1,6 @@
 //! Each company's own NEAR treasury: a non-exportable, undeletable ed25519
 //! key in OpenBao named `axom-treasury-<id>`. The company funds its implicit
-//! account; ForeMan never pools customer money. Only axom-signer can sign with
+//! account; Combox never pools customer money. Only axom-signer can sign with
 //! it; the platform's provisioner token can create keys but not use them.
 
 use async_trait::async_trait;

@@ -1,7 +1,7 @@
 [project]
 name = "axom-meet"
 version = "0.1.0"
-description = "ForeMan AI interviewer for self-hosted LiveKit"
+description = "Combox AI interviewer for self-hosted LiveKit"
 requires-python = ">=3.11"
 dependencies = [
   "livekit-agents[deepgram,silero]==1.8.11",

@@ -1,4 +1,4 @@
-// The company's goal, budget, deadline, and objectives. ForeMan turns them into
+// The company's goal, budget, deadline, and objectives. Combox turns them into
 // departments, AI workers, tasks, and hiring requests.
 import { useState } from "react";
 import { platform } from "../api.js";

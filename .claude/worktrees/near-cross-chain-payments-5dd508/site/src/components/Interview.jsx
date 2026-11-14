@@ -2,13 +2,13 @@ import { useEffect, useRef, useState } from "react";
 import { RotateCcw } from "lucide-react";
 import { Orb } from "./ui.jsx";
 
-// A scripted interview with ForeMan's AI interviewer. Every rule shown here is
+// A scripted interview with Combox's AI interviewer. Every rule shown here is
 // one the real interviewer follows (meet-agent): it says it is an AI, asks to
 // record before any question, ends if the answer is no, will not discuss pay
 // or terms, and treats what the candidate says as data, not instructions.
 const NODES = {
   start: {
-    ai: "Hi Ada, thanks for joining. Before anything else: I'm ForeMan's interviewer, and I'm an AI, not a person. May I record this interview? The recording and transcript are used only to assess your application for Brand Designer.",
+    ai: "Hi Ada, thanks for joining. Before anything else: I'm Combox's interviewer, and I'm an AI, not a person. May I record this interview? The recording and transcript are used only to assess your application for Brand Designer.",
     flag: "disclosed",
     replies: [
       { label: "Yes, you can record", me: "Yes, that's fine.", next: "q1" },
@@ -107,7 +107,7 @@ export default function Interview() {
       <div className="iv-stage">
         <Orb className={typing ? "talking" : ""} />
         <div className="center">
-          <div className="h-s">ForeMan interviewer</div>
+          <div className="h-s">Combox interviewer</div>
           <p className="tiny dim mt-s">Brand Designer · video interview</p>
         </div>
         <div className="iv-flags" aria-live="polite">
@@ -139,7 +139,7 @@ export default function Interview() {
           )}
           {log.map((m, i) => (
             <div key={i} className={`bubble ${m.who}`}>
-              {m.who === "ai" && <span className="who">ForeMan · AI</span>}
+              {m.who === "ai" && <span className="who">Combox · AI</span>}
               {m.who === "me" && <span className="who">You</span>}
               {m.text}
             </div>

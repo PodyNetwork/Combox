@@ -1,6 +1,6 @@
-# Setting up ForeMan on your computer
+# Setting up Combox on your computer
 
-This gets the full ForeMan stack running in Docker and signs you in to the
+This gets the full Combox stack running in Docker and signs you in to the
 dashboard. You do one thing by hand (a free Supabase project for sign-in);
 `./scripts/setup` does the rest. Payouts and AI interviews are optional extras at
 the end.
@@ -14,13 +14,13 @@ all: see "Quick start" in the README.)
 - **Git**.
 
 ```bash
-git clone https://github.com/PodyNetwork/foreman.git
-cd foreman
+git clone https://github.com/PodyNetwork/Combox.git
+cd Combox
 ```
 
 ## 2. Create a Supabase project (free) for sign-in
 
-ForeMan has no built-in passwords. You sign in with a Supabase account plus a
+Combox has no built-in passwords. You sign in with a Supabase account plus a
 6-digit code from an authenticator app. This takes about 5 minutes.
 
 Supabase updates its dashboard from time to time, so a menu name may be
@@ -30,7 +30,7 @@ Everything below is in the **left sidebar** of your project.
 **a. Create the project**
 
 1. Go to [supabase.com](https://supabase.com) and sign up or sign in.
-2. Click **New project**. Pick any name, set a database password (ForeMan
+2. Click **New project**. Pick any name, set a database password (Combox
    doesn't use it, but keep it), choose the region closest to you, and click
    **Create new project**. It takes about a minute to start.
 3. Open the project from your **Projects** page.
@@ -86,8 +86,8 @@ projects don't need this.
 
 It asks for three things: the Project URL, the anon key, and your email
 (the user from step 2). It checks each one against Supabase as you go. Then
-it generates ForeMan's signing and encryption keys, writes everything to
-`.env`, builds and starts the stack, and opens the ForeMan website
+it generates Combox's signing and encryption keys, writes everything to
+`.env`, builds and starts the stack, and opens the Combox website
 (http://localhost:5175). The first build takes several minutes.
 
 Keep a copy of `.env` somewhere safe (it holds the keys). It stays on your
@@ -95,7 +95,7 @@ machine and is never committed.
 
 ## 4. Sign in
 
-1. The ForeMan website opens at **http://localhost:5175**. Click **Sign in**
+1. The Combox website opens at **http://localhost:5175**. Click **Sign in**
    to go to the dashboard (**http://localhost:5174**). Once you're signed in,
    the website's home page sends you straight to the dashboard.
 2. Enter the email and password from step 2.
@@ -103,7 +103,7 @@ machine and is never committed.
    (Google Authenticator, Microsoft Authenticator, 1Password, Authy), then
    type the 6-digit code. Next time you only type the code.
 
-You're the admin from your first sign-in: ForeMan makes the owner's email
+You're the admin from your first sign-in: Combox makes the owner's email
 (`AXOM_OWNER_EMAIL`) an admin the first time that person signs in with the
 two-factor code, as long as there are no admins yet. You now see the
 dashboard: org chart, tasks, the monthly cap, payouts waiting for approval,
@@ -116,7 +116,7 @@ The public jobs board is at **http://localhost:5173/jobs**.
 ```bash
 ./scripts/start              # start (also rebuilds after pulling new code)
 ./scripts/stop               # stop; your data is kept
-docker compose logs -f axom  # watch ForeMan's log
+docker compose logs -f axom  # watch Combox's log
 docker compose --profile payouts down -v   # DELETE the local database and the treasury key
 ```
 
@@ -156,8 +156,8 @@ docker compose exec db psql -U axom -d axom -c "INSERT INTO axom.admins (user_id
 ## Optional: NEAR testnet payouts
 
 `./scripts/setup` sets these up for you: OpenBao (which holds the treasury
-key) and the signer (the only part of ForeMan that can use it) run in
-Docker next to the rest. If you set up ForeMan before payouts were part of
+key) and the signer (the only part of Combox that can use it) run in
+Docker next to the rest. If you set up Combox before payouts were part of
 setup, `./scripts/start` sets them up the next time it runs (or run
 `./scripts/setup payouts`).
 
@@ -191,7 +191,7 @@ TURN; set `LIVEKIT_URL` (its public wss:// address), `LIVEKIT_API_KEY` and
 
 ## Platform mode: let anyone sign up companies
 
-This turns your ForeMan into a service: people sign up, create their own
+This turns your Combox into a service: people sign up, create their own
 company, connect their tools, and pay a subscription in NEAR. Do the steps
 above first (Supabase, keys); then:
 
@@ -237,7 +237,7 @@ above first (Supabase, keys); then:
    follow the setup guide to create your first company. You don't need to
    insert anything into the database: the creator of a company is its owner.
 
-**Already running ForeMan for one company?** Move it onto the platform without
+**Already running Combox for one company?** Move it onto the platform without
 copying anything (its database must be on the same Postgres server):
 
 ```bash
@@ -254,7 +254,7 @@ snapshot.
 
 ## Going live
 
-`AXOM_LIVE=true` makes ForeMan really send emails and contracts and post jobs.
+`AXOM_LIVE=true` makes Combox really send emails and contracts and post jobs.
 Do not turn it on until the owner's legal review is complete (crypto
 payouts, worker classification, tax reporting, AI hiring rules). Mainnet
 also needs `NEAR_NETWORK=mainnet` and an explicit `NEAR_RPC_URL`. For a

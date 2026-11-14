@@ -69,7 +69,7 @@ Ask the human for each value. Never guess, generate, or fill in a placeholder:
 - Contact email (max 160 characters)
 - Team size: `1`, `2 - 4`, `4 - 6`, `6 - 8`, or `8+`
 - Tracks: `business`, `agents`, and `security`, as confirmed by the human. Ask again before changing them.
-- Prize payout NEAR account on mainnet. The human creates it in a NEAR wallet. This is separate from ForeMan's treasury, and ForeMan never receives or handles it.
+- Prize payout NEAR account on mainnet. The human creates it in a NEAR wallet. This is separate from Combox's treasury, and Combox never receives or handles it.
 - Public repository link
 - Public demo post link
 - Idea text: the problem, what was built, and how NEAR fits in (20-2000 characters)
@@ -114,7 +114,7 @@ Handle the responses this way:
 - Sending the submission. Print the payload first and wait for a yes. A project gets one attempt.
 - Posting on X or any other network.
 - Making the repository public, pushing, or force-pushing.
-- Signing transactions, spending tokens, or deploying to mainnet. The prize account is never used for ForeMan's operations.
+- Signing transactions, spending tokens, or deploying to mainnet. The prize account is never used for Combox's operations.
 - Committing secrets.
 
 ## Request changes

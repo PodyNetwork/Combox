@@ -1,6 +1,6 @@
 """Judge-mode stand-in for a live LiveKit room: runs the real interview logic
 (disclosure, consent, questions, guards) against a scripted candidate and
-posts the real callbacks to ForeMan. No LiveKit, STT, TTS, or LLM keys needed.
+posts the real callbacks to Combox. No LiveKit, STT, TTS, or LLM keys needed.
 
     python -m axom_meet.simulate --metadata job.json
 """
@@ -59,7 +59,7 @@ def main() -> int:
             print(f"AGENT: {reply.say}")
     if interview.consent and interview.consent["granted"]:
         result = post_event(job.callback_url, job.callback_token, interview.results())
-        print(f"ForeMan: {result}")
+        print(f"Combox: {result}")
     return 0
 
 

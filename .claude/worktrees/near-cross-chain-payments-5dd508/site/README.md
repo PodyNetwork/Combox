@@ -1,6 +1,6 @@
-# ForeMan marketing site
+# Combox marketing site
 
-The public website for ForeMan, the operating system for fully autonomous,
+The public website for Combox, the operating system for fully autonomous,
 AI-run companies: a landing page and the pages around it, in the same
 control-room design as the dashboard and the participant site. All copy follows
 one message: AI runs every area of the company, inside hard limits enforced by
@@ -17,7 +17,7 @@ code; the human owner acts as the board.
 | Privacy and data handling | `/privacy/` |
 | Not found | `/404.html` |
 
-The demos run in the browser on small copies of ForeMan's real rules
+The demos run in the browser on small copies of Combox's real rules
 (`src/lib/axom.js`): the payout checks mirror `axom-hr`'s policy engine and
 cap, the org chart uses the keyword rules in `config/planner.toml`, and the
 firing rules come from `config/performance.toml`. If those change, update

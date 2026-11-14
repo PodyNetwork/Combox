@@ -1,5 +1,5 @@
 //! Hiring: AI agents autonomously, human freelancers under policy through
-//! ForeMan's own jobs board (`board`, paid in NEAR) or Upwork (paid through
+//! Combox's own jobs board (`board`, paid in NEAR) or Upwork (paid through
 //! Upwork only).
 //!
 //! Human flow, each step audited:

@@ -77,7 +77,7 @@ impl Runtime {
             Err(e) if live => Arc::new(not_set_up("email (SMTP)", &e)),
             Err(_) => Arc::new(MockTools::new()),
         };
-        // ForeMan's own jobs board by default (hires paid in NEAR); Upwork only
+        // Combox's own jobs board by default (hires paid in NEAR); Upwork only
         // when chosen, and those hires are paid through Upwork, never in NEAR.
         let market: Box<dyn axom_tools::FreelanceMarketplace> = if cfg.get("AXOM_MARKETPLACE").as_deref() == Some("upwork") {
             match axom_tools::adapters::upwork::UpworkMcp::from_config(cfg) {
@@ -103,7 +103,7 @@ impl Runtime {
         tracing::info!(company = %label, marketplace = market.name(), ai_workers = if brain.is_some() { "thinking (Claude)" } else { "tools only (no Anthropic key)" }, "company runtime started");
 
         // Organizer on interview calendar invites.
-        let organizer = cfg.get("SMTP_FROM").unwrap_or_else(|| "foreman@localhost".into());
+        let organizer = cfg.get("SMTP_FROM").unwrap_or_else(|| "combox@localhost".into());
         let mut last_payroll: Option<Instant> = None;
         let mut last_hiring: Option<Instant> = None;
         let mut last_digest = chrono::Utc::now();

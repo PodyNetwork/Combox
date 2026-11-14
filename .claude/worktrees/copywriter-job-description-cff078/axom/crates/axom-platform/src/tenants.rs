@@ -403,7 +403,7 @@ fn display_name(email: &str) -> String {
     email.split('@').next().filter(|n| !n.is_empty()).unwrap_or("Admin").chars().take(60).collect()
 }
 
-/// Bring an existing single-company ForeMan database onto the platform.
+/// Bring an existing single-company Combox database onto the platform.
 pub struct Import<'a> {
     /// Name of the existing database, on the same server as the platform's.
     pub database: &'a str,
@@ -447,14 +447,14 @@ impl Platform {
         if taken {
             return Err(TenantError::Invalid(format!("{db} already belongs to a company")));
         }
-        // Check it's an ForeMan database and bring it up to date before
+        // Check it's an Combox database and bring it up to date before
         // registering anything.
         let opts = self.base.clone().database(db).options([("search_path", "public")]);
         let pool = PgPoolOptions::new().max_connections(2).connect_with(opts).await.map_err(|e| TenantError::Provision(format!("connecting to {db}: {e}")))?;
         let (is_axom,): (bool,) = sqlx::query_as("SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'axom' AND table_name = 'workers')").fetch_one(&pool).await?;
         if !is_axom {
             pool.close().await;
-            return Err(TenantError::Invalid(format!("{db} isn't an ForeMan database")));
+            return Err(TenantError::Invalid(format!("{db} isn't an Combox database")));
         }
         axom_core::MIGRATOR.run(&pool).await.map_err(|e| TenantError::Provision(format!("migrating {db}: {e}")))?;
         sqlx::query("INSERT INTO axom.admins (user_id, email, name) VALUES ($1,$2,$3) ON CONFLICT (user_id) DO UPDATE SET active = true, email = EXCLUDED.email")

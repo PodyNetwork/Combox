@@ -1,4 +1,4 @@
-//! ForeMan entry point: boot as HR, route tasks, run them with mock tools
+//! Combox entry point: boot as HR, route tasks, run them with mock tools
 //! (dry-run), and serve the API.
 
 use std::path::PathBuf;

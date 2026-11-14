@@ -1,4 +1,4 @@
-// New company: name and address, then the plan ForeMan builds the org chart
+// New company: name and address, then the plan Combox builds the org chart
 // from, then next steps. The free trial starts when the company is created.
 import { useState } from "react";
 import { platform } from "../api.js";
@@ -110,7 +110,7 @@ export default function Onboarding({ session, onDone, canCancel, onCancel }) {
       {step === 1 && (
         <div className="space-y-5">
           <p className="text-sm text-mute">
-            ForeMan turns your goal and objectives into departments, AI workers, and tasks, and opens hiring requests for work that needs people. You can skip this and do it later in Settings.
+            Combox turns your goal and objectives into departments, AI workers, and tasks, and opens hiring requests for work that needs people. You can skip this and do it later in Settings.
           </p>
           <PlanForm
             session={session}

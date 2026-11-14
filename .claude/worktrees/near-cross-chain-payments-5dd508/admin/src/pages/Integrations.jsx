@@ -63,11 +63,11 @@ function statusOf(integration, values, server, shared) {
   const fromServer = integration.fields.some((f) => !values[f.name] && server.includes(f.name));
   if (done === needed.length && (needed.length || integration.fields.some((f) => f.name === MARKETPLACE))) {
     const label = integration.fields.some((f) => f.name === MARKETPLACE)
-      ? market === "upwork" ? "Upwork" : "ForeMan Jobs board"
+      ? market === "upwork" ? "Upwork" : "Combox Jobs board"
       : fromServer ? "Connected · server" : "Connected";
     return { tone: "lime", label, connected: true, set };
   }
-  if (set === 0 && integration.fields.every((f) => shared.includes(f.name))) return { tone: "sky", label: "ForeMan shared", set };
+  if (set === 0 && integration.fields.every((f) => shared.includes(f.name))) return { tone: "sky", label: "Combox shared", set };
   if (done > 0) return { tone: "amber", label: `${done} of ${needed.length} set`, set, progress: done / needed.length };
   return { tone: "mute", label: "Not connected", set };
 }
@@ -99,14 +99,14 @@ export default function Integrations() {
     <div className="max-w-4xl">
       <PageHead kicker={data ? `${connected} of ${rows.length} connected` : "Your own accounts"} title="Integrations">
         {data && (
-          <span title={data.live ? "Connected integrations make real calls: emails, contracts, posts." : "Until AXOM_LIVE=true is set on the server, ForeMan records what it would send without calling the service."}>
+          <span title={data.live ? "Connected integrations make real calls: emails, contracts, posts." : "Until AXOM_LIVE=true is set on the server, Combox records what it would send without calling the service."}>
             {data.live ? <Badge tone="lime" dot>Live</Badge> : <Badge tone="amber">Dry-run</Badge>}
           </span>
         )}
       </PageHead>
       <p className="reveal -mt-2 mb-6 max-w-2xl text-sm text-mute">
         Connect your own accounts. Keys are encrypted, and only their last four characters are ever shown again.
-        {data && !data.live && " In dry-run, ForeMan records what it would send without calling the service."} Tools for AI workers are MCP servers, on the{" "}
+        {data && !data.live && " In dry-run, Combox records what it would send without calling the service."} Tools for AI workers are MCP servers, on the{" "}
         <button type="button" onClick={() => navigate("tools")} className="text-fog underline decoration-white/30 underline-offset-4 hover:decoration-lime">
           Tools page
         </button>
@@ -346,7 +346,7 @@ function MarketplaceField({ value, onChange, disabled, error }) {
         value={value}
         onChange={onChange}
         options={[
-          { value: "board", label: "ForeMan Jobs board" },
+          { value: "board", label: "Combox Jobs board" },
           { value: "upwork", label: "Upwork" },
         ]}
       />

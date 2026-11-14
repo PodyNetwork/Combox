@@ -91,7 +91,7 @@ pub struct Objective {
     pub department: Option<String>,
 }
 
-/// The master plan ForeMan boots from.
+/// The master plan Combox boots from.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Plan {
     pub goal: String,
@@ -214,7 +214,7 @@ impl Payout {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Actor {
-    /// ForeMan itself (deterministic services).
+    /// Combox itself (deterministic services).
     System,
     /// An LLM-driven agent (e.g. the HR agent or a worker agent).
     Agent { name: String },

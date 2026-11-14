@@ -1,4 +1,4 @@
-/* ForeMan participant UI: same control-room language as the admin dashboard.
+/* Combox participant UI: same control-room language as the admin dashboard.
    Ink canvas, film grain, one glowing orb; lime = go, ember = stop,
    violet = the AI interviewer. */
 :root {
@@ -171,7 +171,7 @@ code, .mono { font-family: var(--mono); }
 .device-issue button { margin-left: auto; border: 0; background: none; color: inherit; cursor: pointer; font-size: 14px; }
 .room [data-lk-theme], .room .lk-room-container { height: 100%; }
 
-/* LiveKit theme mapped onto the ForeMan palette. */
+/* LiveKit theme mapped onto the Combox palette. */
 [data-lk-theme="default"] {
   --lk-bg: var(--ink);
   --lk-bg2: var(--panel);

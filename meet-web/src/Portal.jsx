@@ -29,7 +29,7 @@ async function call(token, path, { method = "GET", body } = {}) {
       body: body ? JSON.stringify(body) : undefined,
     });
   } catch {
-    throw new Error("We couldn't reach the ForeMan server. Check your connection and try again.");
+    throw new Error("We couldn't reach the Combox server. Check your connection and try again.");
   }
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);

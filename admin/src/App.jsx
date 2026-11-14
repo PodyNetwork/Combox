@@ -1,4 +1,4 @@
-// ForeMan control room. On the multi-tenant platform: sign up, create a company,
+// Combox control room. On the multi-tenant platform: sign up, create a company,
 // switch between companies, connect tools, pay in NEAR, and manage members.
 // In a single-company deployment the platform pages are hidden and everything
 // talks to that deployment's API.
@@ -76,10 +76,10 @@ function Gate() {
   if (session === undefined || mode === null) return <AuthShell step="Checking" title="One moment…" />;
   if (mode === "unreachable" || mode === "not-api") {
     const error = mode === "not-api"
-      ? `${API} answered, but it isn't the ForeMan API (it's usually on port 8080). Set VITE_AXOM_API_URL to the API's address, e.g. http://localhost:8080, and rebuild the dashboard.`
-      : `Can't reach the ForeMan API at ${API}. Make sure it's running and that VITE_AXOM_API_URL points to it, then reload.`;
+      ? `${API} answered, but it isn't the Combox API (it's usually on port 8080). Set VITE_AXOM_API_URL to the API's address, e.g. http://localhost:8080, and rebuild the dashboard.`
+      : `Can't reach the Combox API at ${API}. Make sure it's running and that VITE_AXOM_API_URL points to it, then reload.`;
     return (
-      <AuthShell step="Can't connect" title="The ForeMan API isn't answering">
+      <AuthShell step="Can't connect" title="The Combox API isn't answering">
         <ErrorNote error={error} />
         <Button size="lg" className="mt-6 w-full" onClick={() => window.location.reload()}>Try again</Button>
       </AuthShell>
@@ -194,7 +194,7 @@ function Frame({ pages, page, current, companies, onPickCompany, email }) {
 
   // The tab title follows the page and flags payouts waiting for approval.
   useEffect(() => {
-    document.title = `${pendingCount ? `(${pendingCount}) ` : ""}${page.label} · ForeMan`;
+    document.title = `${pendingCount ? `(${pendingCount}) ` : ""}${page.label} · Combox`;
   }, [page.label, pendingCount]);
 
   // An expired or revoked session gets one clear prompt, not a page of errors.

@@ -42,14 +42,14 @@ impl LiveKit {
         Self { http, ws_url: ws_url.into(), api_key: api_key.into(), api_secret: api_secret.into(), participant_ttl_secs: 15 * 60 }
     }
 
-    /// The LiveKit server bundled with ForeMan (server settings, never a
+    /// The LiveKit server bundled with Combox (server settings, never a
     /// company's): `LIVEKIT_URL` (what browsers connect to),
     /// `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET`, and optionally
-    /// `LIVEKIT_API_URL` when ForeMan reaches the server at another address
+    /// `LIVEKIT_API_URL` when Combox reaches the server at another address
     /// (inside Docker, `http://livekit:7880`).
     ///
     /// Always live, whatever `AXOM_LIVE` says (DECISIONS M6-16): this is
-    /// ForeMan's own server, and the participant tokens it hands out are real
+    /// Combox's own server, and the participant tokens it hands out are real
     /// either way, so a dry run only left people in real rooms the
     /// interviewer was never sent to. Emails, contracts, and payouts stay
     /// behind `AXOM_LIVE`.
@@ -78,7 +78,7 @@ impl LiveKit {
         if let Some(r) = room {
             video["room"] = json!(r);
         }
-        self.token("axom-backend", "ForeMan", 60, video, None)
+        self.token("axom-backend", "Combox", 60, video, None)
     }
 
     async fn twirp(&self, service: &str, method: &str, room: Option<&str>, body: Value, dry: Value) -> ToolResult<Value> {

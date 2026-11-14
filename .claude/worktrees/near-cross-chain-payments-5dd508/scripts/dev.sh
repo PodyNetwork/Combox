@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Run the real ForeMan stack on this machine with the settings in .env.
+# Run the real Combox stack on this machine with the settings in .env.
 #
 #   cp .env.example .env      # then fill it in (see README, "Running the real stack")
 #   ./scripts/dev.sh          # starts everything; Ctrl+C stops everything
@@ -67,7 +67,7 @@ fi
 echo "Building..."
 (cd axom && cargo build -q -p axom-bin -p axom-signer)
 
-echo "Starting ForeMan (network: ${NEAR_NETWORK:-testnet}, live: ${AXOM_LIVE:-false})"
+echo "Starting Combox (network: ${NEAR_NETWORK:-testnet}, live: ${AXOM_LIVE:-false})"
 # The API shows the treasury address it gets from the signer, so it's only
 # told where the signer is when the signer runs.
 if need OPENBAO_ADDR && need OPENBAO_TOKEN && need AXOM_ATTESTATION_VERIFY_KEY && need AXOM_APPROVAL_VERIFY_KEY; then

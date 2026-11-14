@@ -64,7 +64,7 @@ export default function OrgBuilder() {
           <Sparkles aria-hidden="true" /> Build the org chart
         </button>
         <p className="tiny dim">
-          Runs the same keyword rules as ForeMan's rule-based planner (<span className="mono">config/planner.toml</span>), right here in your browser.
+          Runs the same keyword rules as Combox's rule-based planner (<span className="mono">config/planner.toml</span>), right here in your browser.
         </p>
       </form>
 
@@ -89,7 +89,7 @@ export default function OrgBuilder() {
                     <h5>{d.name}</h5>
                     <div className="team">{d.team}</div>
                     {d.workers.map((w, j) => (
-                      <div key={w.id} className={`org-worker ${w.kind}`} style={{ "--i": i, "--j": j }} title={w.kind === "ai" ? `Tools: ${w.tools.join(", ")}` : "Hired through ForeMan Jobs"}>
+                      <div key={w.id} className={`org-worker ${w.kind}`} style={{ "--i": i, "--j": j }} title={w.kind === "ai" ? `Tools: ${w.tools.join(", ")}` : "Hired through Combox Jobs"}>
                         {w.kind === "ai" ? <Bot aria-hidden="true" /> : <UserRound aria-hidden="true" />}
                         <span>{w.title}</span>
                       </div>
