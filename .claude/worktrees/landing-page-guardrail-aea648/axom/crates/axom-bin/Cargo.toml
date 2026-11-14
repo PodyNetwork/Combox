@@ -1,0 +1,43 @@
+[package]
+name = "axom-bin"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lib]
+name = "axom_app"
+path = "src/lib.rs"
+
+[[bin]]
+name = "axom"
+path = "src/main.rs"
+
+[dependencies]
+axom-signer.workspace = true
+ed25519-dalek.workspace = true
+hex.workspace = true
+rand.workspace = true
+serde.workspace = true
+uuid.workspace = true
+anyhow.workspace = true
+chrono.workspace = true
+rust_decimal.workspace = true
+axum.workspace = true
+axom-api.workspace = true
+axom-core.workspace = true
+axom-hr.workspace = true
+axom-planner.workspace = true
+axom-platform.workspace = true
+axom-tools.workspace = true
+tower = { version = "0.5", features = ["util"] }
+serde_json.workspace = true
+reqwest.workspace = true
+sqlx.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+
+[dev-dependencies]
+async-trait.workspace = true
+rust_decimal_macros.workspace = true

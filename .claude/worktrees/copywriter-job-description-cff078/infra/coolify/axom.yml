@@ -1,0 +1,137 @@
+# Coolify resource: ForeMan (API + HR loops), the signer, LiveKit (video
+# meetings, with TURN), the meeting agent, the admin dashboard, and the
+# participant UI. Set every variable in
+# Coolify's environment editor (see .env.example); never commit them.
+services:
+  axom:
+    build: { context: ../.., dockerfile: axom/Dockerfile }
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      AXOM_LIVE: ${AXOM_LIVE:-false}
+      NEAR_NETWORK: ${NEAR_NETWORK:-testnet}
+      AXOM_OWNER_EMAIL: ${AXOM_OWNER_EMAIL}
+      AXOM_DASHBOARD_URL: ${AXOM_DASHBOARD_URL}
+      AXOM_PUBLIC_API_URL: ${AXOM_PUBLIC_API_URL}
+      AXOM_MEET_WEB_URL: ${AXOM_MEET_WEB_URL}
+      AXOM_CORS_ORIGINS: ${AXOM_CORS_ORIGINS}
+      AXOM_INTERNAL_TOKEN: ${AXOM_INTERNAL_TOKEN}
+      AXOM_MCP_TOKEN: ${AXOM_MCP_TOKEN}
+      AXOM_ATTESTATION_SIGNING_KEY: ${AXOM_ATTESTATION_SIGNING_KEY}
+      AXOM_APPROVAL_SIGNING_KEY: ${AXOM_APPROVAL_SIGNING_KEY}
+      SUPABASE_JWT_SECRET: ${SUPABASE_JWT_SECRET}
+      SUPABASE_JWKS_URL: ${SUPABASE_JWKS_URL}
+      # Multi-tenant platform (optional): DATABASE_URL is then the platform database.
+      AXOM_MULTI_TENANT: ${AXOM_MULTI_TENANT:-false}
+      AXOM_SECRETS_KEY: ${AXOM_SECRETS_KEY}
+      AXOM_BILLING_ACCOUNT: ${AXOM_BILLING_ACCOUNT}
+      AXOM_PLAN_NAME: ${AXOM_PLAN_NAME:-ForeMan}
+      AXOM_PLAN_PRICE_USD: ${AXOM_PLAN_PRICE_USD:-49}
+      AXOM_TRIAL_DAYS: ${AXOM_TRIAL_DAYS:-14}
+      OPENBAO_ADDR: ${OPENBAO_ADDR}
+      OPENBAO_PROVISIONER_TOKEN: ${OPENBAO_PROVISIONER_TOKEN}
+      # Where the dashboard's treasury address comes from (single company).
+      AXOM_SIGNER_URL: http://axom-signer:8090
+      AXOM_MARKETPLACE: ${AXOM_MARKETPLACE:-board}
+      NEAR_RPC_URL: ${NEAR_RPC_URL:-https://rpc.testnet.near.org}
+      NEAR_PRICE_FEED_API_KEY: ${NEAR_PRICE_FEED_API_KEY}
+      NEAR_PRICE_FEED_API_KEY_HEADER: ${NEAR_PRICE_FEED_API_KEY_HEADER:-x-cg-demo-api-key}
+      MONTHLY_PAYOUT_CAP_USD: ${MONTHLY_PAYOUT_CAP_USD:-500}
+      PAYOUT_APPROVAL_THRESHOLD_USD: ${PAYOUT_APPROVAL_THRESHOLD_USD:-50}
+      NEAR_PRICE_FEED_URL: ${NEAR_PRICE_FEED_URL}
+      NEAR_PRICE_FEED_POINTER: ${NEAR_PRICE_FEED_POINTER}
+      LIVEKIT_URL: ${LIVEKIT_URL}
+      LIVEKIT_API_KEY: ${LIVEKIT_API_KEY}
+      LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET}
+      DOCUSEAL_URL: ${DOCUSEAL_URL}
+      DOCUSEAL_API_KEY: ${DOCUSEAL_API_KEY}
+      DOCUSEAL_TEMPLATES: ${DOCUSEAL_TEMPLATES}
+      CRM_URL: ${CRM_URL}
+      CRM_API_KEY: ${CRM_API_KEY}
+      SMTP_HOST: ${SMTP_HOST}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USERNAME: ${SMTP_USERNAME}
+      SMTP_PASSWORD: ${SMTP_PASSWORD}
+      SMTP_FROM: ${SMTP_FROM}
+      UPWORK_MCP_URL: ${UPWORK_MCP_URL}
+      UPWORK_MCP_TOKEN: ${UPWORK_MCP_TOKEN}
+    expose: ["8080"]
+    healthcheck: { test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/8080"], interval: 30s }
+
+  # The only service that talks to OpenBao. Holds only verify keys.
+  axom-signer:
+    build: { context: ../.., dockerfile: axom/Dockerfile }
+    command: ["axom-signer"]
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      AXOM_LIVE: ${AXOM_LIVE:-false}
+      NEAR_NETWORK: ${NEAR_NETWORK:-testnet}
+      NEAR_RPC_URL: ${NEAR_RPC_URL:-https://rpc.testnet.near.org}
+      OPENBAO_ADDR: ${OPENBAO_ADDR}
+      OPENBAO_TOKEN: ${OPENBAO_TOKEN}
+      OPENBAO_TRANSIT_KEY: axom-treasury
+      AXOM_MULTI_TENANT: ${AXOM_MULTI_TENANT:-false}
+      AXOM_ATTESTATION_VERIFY_KEY: ${AXOM_ATTESTATION_VERIFY_KEY}
+      AXOM_APPROVAL_VERIFY_KEY: ${AXOM_APPROVAL_VERIFY_KEY}
+      AXOM_OWNER_EMAIL: ${AXOM_OWNER_EMAIL}
+      AXOM_DASHBOARD_URL: ${AXOM_DASHBOARD_URL}
+      # Reachable by the API on the internal network only (expose, not
+      # ports); it serves /health and the read-only treasury address.
+      AXOM_SIGNER_BIND: 0.0.0.0:8090
+    expose: ["8090"]
+
+  # Video meetings: self-hosted LiveKit with TURN. Host networking: open
+  # TCP 7880 (behind Coolify's proxy, TLS), TCP 7881, UDP 50000-60000,
+  # TURN UDP 3478 and TURN/TLS TCP 5349. LIVEKIT_URL is its public wss://
+  # address; set turn.domain in infra/livekit/livekit.yaml.
+  livekit:
+    image: livekit/livekit-server:v1.13.10
+    command: ["--config", "/etc/livekit.yaml"]
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      LIVEKIT_KEYS: "${LIVEKIT_API_KEY}: ${LIVEKIT_API_SECRET}"
+    volumes:
+      - ../livekit/livekit.yaml:/etc/livekit.yaml:ro
+      - ./tls/turn:/etc/turn-tls:ro
+
+  meet-agent:
+    build:
+      context: ../../meet-agent
+      # Set to "cartesia" to include the optional Cartesia TTS provider.
+      args: { EXTRAS: "${AXOM_MEET_EXTRAS:-}" }
+    depends_on: [livekit]
+    restart: unless-stopped
+    environment:
+      LIVEKIT_URL: ${LIVEKIT_URL}
+      LIVEKIT_API_KEY: ${LIVEKIT_API_KEY}
+      LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET}
+      DEEPGRAM_API_KEY: ${DEEPGRAM_API_KEY}
+      AXOM_MEET_TTS: ${AXOM_MEET_TTS:-deepgram}
+      AXOM_MEET_TTS_VOICE: ${AXOM_MEET_TTS_VOICE:-}
+      AXOM_MEET_STT_MODEL: ${AXOM_MEET_STT_MODEL:-}
+      CARTESIA_API_KEY: ${CARTESIA_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      AXOM_MEET_LLM_MODEL: ${AXOM_MEET_LLM_MODEL:-claude-sonnet-5-5}
+
+  admin:
+    build:
+      context: ../../admin
+      dockerfile: ../infra/web.Dockerfile
+      args:
+        VITE_AXOM_API_URL: ${AXOM_PUBLIC_API_URL}
+        VITE_SUPABASE_URL: ${SUPABASE_URL}
+        VITE_SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY}
+        VITE_AXOM_MEET_WEB_URL: ${AXOM_MEET_WEB_URL}
+    restart: unless-stopped
+    expose: ["80"]
+
+  meet-web:
+    build:
+      context: ../../meet-web
+      dockerfile: ../infra/web.Dockerfile
+      args: { VITE_AXOM_API_URL: "${AXOM_PUBLIC_API_URL}" }
+    restart: unless-stopped
+    expose: ["80"]
+

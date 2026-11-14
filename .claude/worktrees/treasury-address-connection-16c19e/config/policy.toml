@@ -1,0 +1,58 @@
+# Combox policy config. Versioned: bump `version` on every change and commit.
+# Every policy decision records "<version>+<hash of effective config>".
+# Environment variables PAYOUT_APPROVAL_THRESHOLD_USD and MONTHLY_PAYOUT_CAP_USD
+# override the matching values below (the hash changes with them).
+version = "2026-11-14.2"
+
+[payouts]
+# Payouts (summed per recipient over the rolling window) at or above this
+# amount require human approval in the dashboard.
+approval_threshold_usd = "50"
+aggregation_window_hours = 24
+# NEAR/USD price older than this forces approval.
+price_max_age_secs = 900
+# Pending approvals expire (and release their cap reservation) after this.
+approval_expiry_days = 7
+
+[cap]
+# Seed value for the shared monthly cap (UTC calendar month). After first boot
+# the cap lives in the database and only an MFA-verified admin can change it.
+default_monthly_cap_usd = "500"
+
+[contracts]
+# Owner-approved DocuSeal templates. The agent may not draft legal language.
+approved_templates = ["freelancer-services-v1", "termination-notice-v1", "tax-form-w9", "tax-form-w8ben"]
+
+[privacy]
+# Candidates who were not hired: their application data, interview
+# transcript, and contact details are redacted after this many days.
+# Rubric scores stay (without identity) for bias audits.
+candidate_retention_days = 180
+
+[intents]
+# Cross-chain payouts (NEAR Intents): a worker paid on another chain gets the
+# treasury's wNEAR swapped and delivered by solvers.
+# Estimated route cost in basis points of the payout. Added to the NEAR
+# deposit so the worker receives what they are owed; counted toward the cap.
+route_fee_bps = 100
+# Slippage tolerance sent with every 1Click quote.
+slippage_bps = 100
+# The signer refuses a quote whose USD output is more than this below the
+# owed amount (the price moved or the route got expensive) and retries later.
+max_shortfall_bps = 300
+
+[treasury]
+# Treasury yield on Rhea Finance lending. NEAR that payroll may not spend this
+# month is supplied to Rhea and withdrawn again before payroll needs it.
+# Supply only: never borrows, never collateral; funds only ever return to the
+# treasury. Off until the owner turns it on (or TREASURY_YIELD_ENABLED=true).
+yield_enabled = false
+# Liquid floor = NEAR owed on unsent payouts + the monthly cap's remaining
+# headroom at the current price + min_liquid_near. Supplying stops this far
+# above the floor; withdrawing starts only below the floor itself.
+liquidity_margin_pct = 25
+min_liquid_near = "1"
+# Never more than this share of the treasury in Rhea.
+max_deployed_pct = 90
+# No move smaller than this.
+min_move_near = "0.5"

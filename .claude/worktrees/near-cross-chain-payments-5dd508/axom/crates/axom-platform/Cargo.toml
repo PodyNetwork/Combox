@@ -1,0 +1,37 @@
+[package]
+name = "axom-platform"
+version = "0.1.0"
+edition = "2021"
+description = "Multi-tenant control plane: companies, members, encrypted integration keys, NEAR subscriptions, and per-company routing."
+
+[dependencies]
+aes-gcm = "0.10"
+anyhow.workspace = true
+async-trait.workspace = true
+axom-api.workspace = true
+axom-core.workspace = true
+axom-hr.workspace = true
+axom-planner.workspace = true
+axom-signer.workspace = true
+axom-tools.workspace = true
+axum.workspace = true
+bs58.workspace = true
+chrono.workspace = true
+hex.workspace = true
+rand.workspace = true
+reqwest.workspace = true
+rust_decimal.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sqlx.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tower = { version = "0.5", features = ["util"] }
+tracing.workspace = true
+uuid.workspace = true
+
+[dev-dependencies]
+bs58.workspace = true
+jsonwebtoken.workspace = true
+axom-planner.workspace = true
+rust_decimal_macros.workspace = true

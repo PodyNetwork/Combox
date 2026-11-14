@@ -1,0 +1,14 @@
+.git
+.env
+.env.*
+secrets
+judge/out
+judge/.bin
+.dev-logs
+**/target
+# Claude Code worktrees: full copies of the repo, Rust build output included.
+.claude
+**/node_modules
+**/dist
+**/__pycache__
+**/*.log

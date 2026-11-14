@@ -1,0 +1,24 @@
+# Performance review and firing config (versioned). Every review records
+# "<version>+<hash of these values>".
+version = "2026-11-08.1"
+
+[review]
+# A review runs after this many tasks finish, or at the end of each period,
+# whichever comes first.
+every_finished_tasks = 10
+period_days = 7
+# Fraction of reviews sent to the owner's spot-check queue.
+spot_check_rate = 0.10
+
+[thresholds]
+# Objective metrics only. A review is below threshold if any metric with data
+# misses its threshold. LLM quality is recorded but never used here.
+min_completion_rate = 0.7
+min_on_time_rate = 0.6
+max_cost_per_completed_usd = "5"
+min_objective_quality = 0.6
+
+[firing]
+min_completed_tasks = 10
+min_data_days = 14
+consecutive_below_periods = 2

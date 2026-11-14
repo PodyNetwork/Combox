@@ -1,0 +1,11 @@
+/axom/target
+.env
+*.log
+node_modules/
+__pycache__/
+.dev-logs/
+secrets/
+*.egg-info/
+
+# OpenBao TLS key and certificate for the Coolify resource (never commit).
+infra/coolify/tls/

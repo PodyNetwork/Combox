@@ -1,0 +1,20 @@
+[project]
+name = "axom-meet"
+version = "0.1.0"
+description = "ForeMan AI interviewer for self-hosted LiveKit"
+requires-python = ">=3.11"
+dependencies = [
+  "livekit-agents[deepgram,silero]==1.8.11",
+  "anthropic==1.17.0",
+]
+
+[project.optional-dependencies]
+test = ["pytest==9.2.0"]
+# Optional: Cartesia text-to-speech (AXOM_MEET_TTS=cartesia). Deepgram is the default.
+cartesia = ["livekit-agents[cartesia]==1.8.11"]
+
+[project.scripts]
+axom-meet = "axom_meet.agent:main"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

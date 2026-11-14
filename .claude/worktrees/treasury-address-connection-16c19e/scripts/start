@@ -1,0 +1,261 @@
+#!/usr/bin/env bash
+# Start Combox.
+#
+#   ./scripts/start demo            the demo: no accounts needed. Builds and runs
+#                                   everything on this machine (local Postgres and
+#                                   OpenBao, mocked outside services, real NEAR
+#                                   testnet), runs the demo scenario and opens the
+#                                   website, signed in. Ctrl+C stops everything.
+#   ./scripts/start demo --no-open  same, without opening the browser
+#   ./scripts/start                 your own Combox in Docker, set up with
+#                                   ./scripts/setup. Also rebuilds after pulling
+#                                   new code.
+#   ./scripts/stop                  stop either one
+#
+# The demo needs Rust, Node.js 20+, Python 3, curl and Docker; your own
+# Combox needs Docker and curl. On macOS, Docker Desktop is started for you
+# if it isn't running.
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+OUT="$ROOT/judge/out"
+ENV="$ROOT/.env"
+API=http://127.0.0.1:8080
+JOBS_PORT=5173 DASH_PORT=5174 SITE_PORT=5175
+# Every web server the demo starts (website, dashboard, jobs board);
+# scripts/stop reads it too.
+WEB_PIDS="$OUT/web.pids"
+OPEN=1
+
+say() { printf '\033[1m%s\033[0m\n' "$*"; }
+fail() { printf '\n\033[1;31m%s\033[0m\n' "$1" >&2; shift; for l in "$@"; do echo "$l" >&2; done; exit 1; }
+need() { command -v "$1" >/dev/null || fail "Missing prerequisite: $1" "$2"; }
+get_env() { grep -E "^$1=" "$ENV" 2>/dev/null | tail -1 | cut -d= -f2- || true; }
+
+ensure_docker() {
+  need docker "Install Docker Desktop from https://www.docker.com/products/docker-desktop/"
+  docker info >/dev/null 2>&1 && return 0
+  if [[ "$(uname -s)" == Darwin ]] && open -Ra Docker 2>/dev/null; then
+    echo "Docker isn't running; starting Docker Desktop..."
+    open -a Docker
+    for _ in $(seq 1 90); do docker info >/dev/null 2>&1 && return 0; sleep 2; done
+  fi
+  fail "Docker isn't running." "Start Docker (Docker Desktop, OrbStack, colima, ...) and run this again."
+}
+
+# Fail if a port Combox needs is taken, naming the process holding it.
+ports_free() { # "port:what" ...
+  command -v lsof >/dev/null || return 0
+  local check pid
+  for check in "$@"; do
+    pid="$(lsof -nP -t -iTCP:"${check%%:*}" -sTCP:LISTEN 2>/dev/null | head -1 || true)"
+    [[ -z "$pid" ]] || fail "Port ${check%%:*} (${check#*:}) is already in use." \
+      "It's held by: $(ps -p "$pid" -o command= 2>/dev/null | cut -c1-120) (pid $pid)" \
+      "If that's Combox, stop it with Ctrl+C in its terminal or run: ./scripts/stop"
+  done
+}
+
+# Your own Combox: the Docker stack configured by ./scripts/setup.
+stack() {
+  cd "$ROOT"
+  [[ -n "$(get_env SUPABASE_URL)" && -n "$(get_env AXOM_ATTESTATION_SIGNING_KEY)" ]] \
+    || fail "Combox isn't set up on this machine yet." "Run ./scripts/setup first, or try the demo: ./scripts/start demo"
+  need curl "Install curl with your package manager"
+  ensure_docker
+  pgrep -f "$ROOT/judge/run.sh" >/dev/null 2>&1 \
+    && fail "The demo is running and uses the same ports." "Stop it with Ctrl+C in its terminal, or run ./scripts/stop, then run this again."
+  [[ -n "$(docker compose ps -q 2>/dev/null)" ]] \
+    || ports_free 8080:API "$DASH_PORT:dashboard" "$SITE_PORT:website" "$JOBS_PORT:jobs board" 7880:LiveKit 55432:Postgres
+
+  # The dashboard and jobs board are built to call the API here. Pointing it
+  # at one of the web apps leaves the dashboard unable to reach the API.
+  local api_url
+  api_url="$(get_env VITE_AXOM_API_URL)"
+  if [[ "$api_url" =~ ^https?://(localhost|127\.0\.0\.1):517[345]/?$ ]]; then
+    K=VITE_AXOM_API_URL V=http://localhost:8080 awk 'index($0, ENVIRON["K"] "=") == 1 { print ENVIRON["K"] "=" ENVIRON["V"]; next } { print }' "$ENV" > "$ENV.tmp"
+    mv "$ENV.tmp" "$ENV"; chmod 600 "$ENV"
+    echo "VITE_AXOM_API_URL in .env pointed at a web app ($api_url), not the API: set it to http://localhost:8080."
+  fi
+
+  # Payouts: OpenBao and the signer, set up once (the signer's token is
+  # OPENBAO_TOKEN in .env). Set up here if they aren't yet, so the dashboard's treasury is
+  # connected without a separate step. If that fails, Combox starts anyway
+  # with payouts off, and the next start tries again.
+  local payouts=off
+  # (This also moves an older setup's secrets/openbao_signer_token into .env.)
+  if [[ -e "$ROOT/secrets/openbao_signer_token" ]] || [[ -z "$(get_env OPENBAO_TOKEN)" && "$(get_env NEAR_NETWORK)" != mainnet ]]; then
+    "$ROOT/scripts/setup" payouts \
+      || echo "Setting up payouts failed (see above); starting without them. ./scripts/start tries again." >&2
+  fi
+  if [[ -n "$(get_env OPENBAO_TOKEN)" ]]; then
+    payouts=on
+    export COMPOSE_PROFILES=payouts AXOM_DOCKER_SIGNER_URL=http://axom-signer:8090
+  fi
+
+  say "Building and starting Combox (the first build takes several minutes)"
+  docker compose up --build -d
+  printf 'Waiting for the API'
+  for _ in $(seq 1 90); do
+    curl -fs http://localhost:8080/health >/dev/null 2>&1 && break
+    printf '.'; sleep 2
+  done
+  echo
+  if ! curl -fs http://localhost:8080/health >/dev/null 2>&1; then
+    docker compose logs --tail 30 axom >&2 || true
+    fail "The API didn't come up." "The last lines of its log are above. See everything with: docker compose logs axom"
+  fi
+  # OpenBao starts sealed after every restart; payouts wait until it's unsealed.
+  if [[ "$payouts" == on && -s "$ROOT/secrets/openbao_unseal_key" ]]; then
+    local st=1
+    for _ in $(seq 1 30); do
+      st=0; docker compose exec -T -e BAO_ADDR=http://127.0.0.1:8200 openbao bao status >/dev/null 2>&1 || st=$?
+      [[ "$st" != 1 ]] && break; sleep 1
+    done
+    if [[ "$st" == 2 ]]; then
+      docker compose exec -T -e BAO_ADDR=http://127.0.0.1:8200 openbao bao operator unseal "$(cat "$ROOT/secrets/openbao_unseal_key")" >/dev/null \
+        || echo "Couldn't unseal OpenBao; payouts wait until it is. See: docker compose logs openbao" >&2
+    fi
+  fi
+  # Start where a visitor would: the website. Its Sign in leads to the dashboard.
+  if [[ "$OPEN" == 1 ]]; then
+    if command -v open >/dev/null; then open "http://localhost:$SITE_PORT" || true
+    elif command -v xdg-open >/dev/null; then xdg-open "http://localhost:$SITE_PORT" >/dev/null 2>&1 || true
+    fi
+  fi
+  echo
+  say "──────────────────────────────────────────────────────────────"
+  say " Combox is running"
+  echo "   Website      http://localhost:$SITE_PORT  (Sign in takes you to the dashboard)"
+  echo "   Dashboard    http://localhost:$DASH_PORT"
+  echo "   Jobs board   http://localhost:$JOBS_PORT/jobs"
+  echo "   API          http://localhost:8080"
+  if [[ "$payouts" == on ]]; then
+    echo "   Payouts      on (the signer is running)"
+  else
+    echo "   Payouts      off; ./scripts/setup turns them on"
+  fi
+  echo
+  echo "   Sign in with $(get_env AXOM_OWNER_EMAIL) and your Supabase password."
+  echo "   The first time, scan the QR code with an authenticator app"
+  echo "   and enter the 6-digit code. You're the admin from then on."
+  echo
+  echo "   Logs:  docker compose logs -f axom"
+  echo "   Stop:  ./scripts/stop          Start again:  ./scripts/start"
+  say "──────────────────────────────────────────────────────────────"
+}
+
+MODE=stack
+for arg in "$@"; do
+  case "$arg" in
+    demo) MODE=demo ;;
+    --no-open) OPEN=0 ;;
+    -h|--help|help) awk 'NR > 1 && !/^#/ { exit } NR > 1 { sub(/^# ?/, ""); print }' "$0"; exit 0 ;;
+    *) fail "Unknown option: $arg" "Run ./scripts/start --help to see the options." ;;
+  esac
+done
+[[ "$MODE" == stack ]] && { stack; exit 0; }
+
+# --- The demo -----------------------------------------------------------------
+# Stop the web servers listed in $WEB_PIDS (only those that are still vite).
+stop_web() {
+  local p
+  [[ -f "$WEB_PIDS" ]] || return 0
+  while read -r p; do
+    [[ "$(ps -p "$p" -o command= 2>/dev/null || true)" == *vite* ]] && kill "$p" 2>/dev/null || true
+  done < "$WEB_PIDS"
+  rm -f "$WEB_PIDS"
+}
+
+need cargo "Install Rust from https://rustup.rs"
+need node "Install Node.js 20 or newer from https://nodejs.org"
+need npm "Install Node.js 20 or newer from https://nodejs.org"
+need python3 "Install Python 3 from https://www.python.org"
+need curl "Install curl with your package manager"
+[[ "$(node -p 'process.versions.node.split(".")[0]')" -ge 20 ]] \
+  || fail "Node.js $(node --version) is too old." "The web apps need Node.js 20 or newer: https://nodejs.org"
+
+mkdir -p "$OUT"; chmod 700 "$OUT"
+ports_free "$JOBS_PORT:jobs board" "$DASH_PORT:dashboard" "$SITE_PORT:website"
+
+# build <app dir> [VAR=value ...]: install packages if needed, then build.
+build() {
+  local app="$1"; shift
+  cd "$ROOT/$app"
+  : > "$OUT/$app.log"
+  [[ -d node_modules ]] || npm ci --no-audit --no-fund >> "$OUT/$app.log" 2>&1 \
+    || { echo "Installing $app's packages failed; see judge/out/$app.log" >&2; return 1; }
+  env "$@" npm run build >> "$OUT/$app.log" 2>&1 \
+    || { echo "Building $app failed; see judge/out/$app.log" >&2; return 1; }
+}
+# serve <app dir> <port>: serve the build; /api is proxied to the API
+# (vite.config.js), so the pages call it on their own origin, no CORS.
+serve() {
+  cd "$ROOT/$1"
+  ./node_modules/.bin/vite preview --port "$2" --strictPort >> "$OUT/$1.log" 2>&1 &
+  echo $! >> "$WEB_PIDS"
+  local i
+  for i in $(seq 1 60); do curl -fs "http://localhost:$2/" >/dev/null 2>&1 && return 0; sleep 0.5; done
+  echo "$1 didn't start on :$2; see judge/out/$1.log" >&2
+  return 1
+}
+
+# The web apps build alongside the Rust build. The website needs no API and
+# starts right away; the dashboard and jobs board start once judge/run.sh has
+# the API up, then the website opens. Its "Sign in" carries the sign-in token.
+web() {
+  local site_ok=0
+  build site VITE_JUDGE_MODE=true VITE_DASHBOARD_URL="http://localhost:$DASH_PORT" \
+    VITE_JOBS_URL="http://localhost:$JOBS_PORT/jobs" VITE_BRIEFS_URL="http://localhost:$JOBS_PORT/briefs" \
+    && serve site "$SITE_PORT" && site_ok=1
+  build admin VITE_JUDGE_MODE=true VITE_AXOM_API_URL=/api VITE_AXOM_MEET_WEB_URL="http://localhost:$JOBS_PORT" || return 1
+  build meet-web VITE_AXOM_API_URL=/api || return 1
+  until [[ -f "$OUT/judge-admin.env" ]] && curl -fs "$API/health" >/dev/null 2>&1; do sleep 1; done
+  serve admin "$DASH_PORT" || return 1
+  serve meet-web "$JOBS_PORT" || return 1
+
+  local token dash_link site_link first opened=0
+  token="$("$ROOT/judge/token.sh")"
+  dash_link="http://localhost:$DASH_PORT/#judge-token=$token"
+  site_link="http://localhost:$SITE_PORT/#judge-token=$token"
+  first="$dash_link"; [[ "$site_ok" == 1 ]] && first="$site_link"
+  if [[ "$OPEN" == 1 ]]; then
+    if command -v open >/dev/null; then open "$first" && opened=1
+    elif command -v xdg-open >/dev/null; then xdg-open "$first" >/dev/null 2>&1 && opened=1
+    fi
+  fi
+  echo
+  say "──────────────────────────────────────────────────────────────"
+  say " Combox demo is running"
+  if [[ "$opened" == 1 ]]; then
+    echo "   Opened in your browser (signed in through Sign in)"
+  else
+    echo "   Open this link (it signs you in):"
+    echo "   $first"
+  fi
+  [[ "$site_ok" == 1 ]] && echo "   Website     http://localhost:$SITE_PORT"
+  echo "   Dashboard   http://localhost:$DASH_PORT"
+  echo "   Jobs board  http://localhost:$JOBS_PORT/jobs"
+  echo "   API         $API"
+  echo "   Approve the payout waiting for approval in the dashboard,"
+  echo "   or with ./judge/approve.sh"
+  echo "   Logs        judge/out/"
+  say " Press Ctrl+C to stop everything."
+  say "──────────────────────────────────────────────────────────────"
+  wait
+}
+
+WEB=""
+cleanup() {
+  # A background job ignores Ctrl+C: stop it and whatever it's running (a build).
+  if [[ -n "$WEB" ]]; then pkill -TERM -P "$WEB" 2>/dev/null || true; kill "$WEB" 2>/dev/null || true; fi
+  stop_web
+  echo; say "Combox stopped. Run ./scripts/start demo to start it again."
+}
+trap cleanup EXIT
+
+say "Starting the Combox demo. The first run builds everything and takes a few minutes."
+# judge/run.sh removes the previous run's judge-admin.env before anything
+# else listens on :8080, so the web apps can't pick up a stale one.
+web &
+WEB=$!
+"$ROOT/judge/run.sh"

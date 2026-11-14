@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+# Put testnet NEAR in your ForeMan's treasury, to try payouts out.
+#
+#   ./scripts/fund-testnet         send 2 testnet NEAR
+#   ./scripts/fund-testnet 5       send up to 5 (the most it sends)
+#
+# Faucets such as near-faucet.io say "invalid account" for a new treasury:
+# they only send to accounts that already exist, and the treasury only
+# exists after its first deposit. This sends from a funding account that
+# NEAR's testnet helper creates and funds. The account is kept in
+# secrets/testnet_funder and reused until it runs low, then replaced.
+# Testnet only; ForeMan must be running with payouts on (./scripts/start).
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$ROOT"
+fail() { printf '\n\033[1;31m%s\033[0m\n' "$1" >&2; shift; for l in "$@"; do echo "$l" >&2; done; exit 1; }
+get_env() { grep -E "^$1=" "$ROOT/.env" 2>/dev/null | tail -1 | cut -d= -f2- || true; }
+
+case "${1:-}" in
+  -h|--help|help) awk 'NR > 1 && !/^#/ { exit } NR > 1 { sub(/^# ?/, ""); print }' "$0"; exit 0 ;;
+esac
+[[ "$(get_env NEAR_NETWORK)" != mainnet ]] || fail "NEAR_NETWORK=mainnet: this only sends testnet NEAR." "Fund a mainnet treasury from your own wallet."
+[[ -n "$(get_env OPENBAO_TOKEN)" ]] || fail "Payouts aren't set up yet." "Run ./scripts/start (it sets them up), then this again."
+[[ -n "$(docker compose --profile payouts ps -q axom-signer 2>/dev/null)" ]] \
+  || fail "The payouts signer isn't running." "Start ForeMan with ./scripts/start, then run this again."
+
+# A one-off container from the current code (--build: a no-op once built),
+# on the stack's network, so it can ask the signer for the treasury address.
+# secrets/ is mounted writable for the funding account file, and the
+# container runs as you so the file stays yours.
+export AXOM_DOCKER_SIGNER_URL=http://axom-signer:8090
+docker compose run --rm --build --no-deps -T --user "$(id -u):$(id -g)" \
+  -v "$ROOT/secrets:/run/funder" axom axom testnet-fund --funder /run/funder/testnet_funder "$@"
+echo "The dashboard shows the new balance within a minute (or click Check balance in Deposit)."
