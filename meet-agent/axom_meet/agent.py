@@ -348,11 +348,15 @@ async def entrypoint(ctx: JobContext) -> None:
         tts = build_tts(key)
         opening = asyncio.create_task(presynthesize(tts, job.disclosure))
         # The local speech detector (Silero) decides when an answer has ended
-        # and when the person talks over the interviewer, with LiveKit's default
-        # timing, as in Foreman. (Deepgram alone was tried: an answer spoken
-        # over the interviewer was not handed over until the person left.)
+        # (0.7 s after the person stops) and when they talk over the
+        # interviewer. Deepgram alone was tried: an answer spoken over the
+        # interviewer was not handed over until the person left. LiveKit's
+        # default end-of-turn model is off: it held ~244 MB per process and,
+        # on a busy machine, missed its 1 s deadline after every answer.
         vad = ctx.proc.userdata.get("vad") or silero.VAD.load()
-        session = AgentSession(stt=build_stt(key), tts=tts, vad=vad)
+        session = AgentSession(
+            stt=build_stt(key), tts=tts, vad=vad, turn_handling={"turn_detection": "vad", "endpointing": {"min_delay": 0.7}}
+        )
         return interview, questions, opening, session
 
     # The agent arrives when the join page opens: everything below is set up
@@ -459,6 +463,8 @@ def main() -> None:
     # Log the agent's own stalls only when they are long: writing each report
     # (a stack trace) itself held the agent up on a busy machine.
     os.environ.setdefault("LIVEKIT_AGENTS_LOOP_BLOCK_WARN_MS", "500")
+    # The end-of-turn model is not used (see `entrypoint`): don't load its weights.
+    os.environ.setdefault("LIVEKIT_AGENTS_PRELOAD_LOCAL_INFERENCE", "0")
     cli.run_app(
         WorkerOptions(
             entrypoint_fnc=entrypoint,
