@@ -241,16 +241,28 @@ code, .mono { font-family: var(--mono); }
 
 /* Speaking indicator. */
 .wave { display: inline-flex; align-items: center; gap: 2px; height: 12px; width: 14px; }
-.wave i { width: 3px; height: 3px; border-radius: 2px; background: var(--lime); opacity: 0; transition: opacity 0.2s; }
+/* The bars grow by transform, not height: no layout on every frame. */
+.wave i { width: 3px; height: 12px; border-radius: 2px; background: var(--lime); opacity: 0; transform: scaleY(0.25); transition: opacity 0.2s; }
 .wave.on i { opacity: 1; animation: wave 0.9s ease-in-out infinite; }
 .wave.on i:nth-child(2) { animation-delay: 0.15s; }
 .wave.on i:nth-child(3) { animation-delay: 0.3s; }
-@keyframes wave { 0%, 100% { height: 3px; } 50% { height: 12px; } }
+@keyframes wave { 0%, 100% { transform: scaleY(0.25); } 50% { transform: scaleY(1); } }
 
 /* Live captions band, Google Meet style, under the tiles. */
-.captions { width: min(100% - 24px, 60rem); margin: 0 auto; padding: 14px 4px 4px; }
+.captions { --cap-size: 19px; width: min(100% - 24px, 60rem); margin: 0 auto; padding: 14px 4px 4px; }
 .cap-label { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; font: 10px var(--mono); letter-spacing: 0.16em; text-transform: uppercase; color: var(--dim); }
-.cap-lines { min-height: 118px; display: flex; flex-direction: column; justify-content: flex-end; gap: 12px; }
+/* A fixed height, so a caption that wraps never pushes the tiles up: room for
+   the earlier line (one line) and three lines of the current one. The newest
+   words stay at the bottom; anything longer slides out of the top, faded.
+   The padding (taken back by the margin) leaves room inside the clip for
+   the glow around the interviewer's orb. */
+.cap-lines {
+  height: calc(2 * 16px + 12px + 1.45 * (15px + 3 * var(--cap-size)));
+  box-sizing: content-box; padding: 0 16px 12px; margin: 0 -16px -12px;
+  overflow: hidden; display: flex; flex-direction: column; justify-content: flex-end; gap: 12px;
+  -webkit-mask-image: linear-gradient(transparent, #000 12px); mask-image: linear-gradient(transparent, #000 12px);
+}
+.cap-line { flex: none; }
 .cap-empty { color: var(--dim); font-size: 14px; }
 .cap-line { display: flex; gap: 14px; align-items: flex-start; animation: cap-in 0.35s cubic-bezier(0.2, 0.8, 0.2, 1) both; transition: opacity 0.4s ease; }
 .cap-line.old { opacity: 0.38; }
@@ -262,7 +274,7 @@ code, .mono { font-family: var(--mono); }
 .cap-body { min-width: 0; }
 .cap-name { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 500; color: var(--mute); }
 .cap-line.ai .cap-name { color: #c4b6ff; }
-.cap-text { margin-top: 2px; font-size: 19px; line-height: 1.45; color: var(--fog); text-wrap: pretty; transition: font-size 0.3s ease; }
+.cap-text { margin-top: 2px; font-size: var(--cap-size); line-height: 1.45; color: var(--fog); text-wrap: pretty; transition: font-size 0.3s ease; }
 .cap-text .w { animation: word-in 0.28s ease-out both; }
 .caret { display: inline-block; width: 2px; height: 1.05em; margin-left: 3px; vertical-align: -0.15em; border-radius: 1px; background: var(--lime); animation: caret 1s steps(2) infinite; }
 @keyframes cap-in { from { opacity: 0; transform: translateY(10px); } }
@@ -317,16 +329,37 @@ code, .mono { font-family: var(--mono); }
   .lobby-art { min-height: 300px; border-right: 0; border-bottom: 1px solid rgb(255 255 255 / 0.05); padding: 24px 16px; }
   .lobby-form { padding: 24px 16px; }
   .mock-grid { grid-template-columns: 1fr; }
-  .stage-grid { grid-template-columns: 1fr 1fr; gap: 8px; padding: 8px 8px 0; }
-  .tile .orb { width: 52%; }
-  .cap-text { font-size: 16px; }
-  .cap-lines { min-height: 96px; }
+  /* Phone upright: one participant per row. The cards are wide and short,
+     so the orb and avatar are sized by the card's height. */
+  .stage-grid { grid-template-columns: 1fr; gap: 8px; padding: 8px 8px 0; }
+  .tile .orb { width: auto; height: 62%; }
+  .tile .avatar { width: auto; height: 46%; font-size: 26px; }
+  .captions { --cap-size: 16px; }
   .ai-note { margin-left: 0; }
   .portal-head .stats { margin-left: 0; }
+}
+/* Phone on its side: stacked cards would be slivers, so side by side. */
+@media (max-width: 860px) and (orientation: landscape) {
+  .stage-grid { grid-template-columns: 1fr 1fr; }
+}
+/* Short screens (a phone on its side): two caption lines, no label, so the
+   cards keep most of the height. */
+@media (max-height: 500px) {
+  .captions { padding-top: 8px; }
+  .cap-label { display: none; }
+  .cap-lines { height: calc(16px + 2 * 1.45 * var(--cap-size)); }
+  .mock-bar { padding: 8px; }
 }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.001ms !important; animation-iteration-count: 1 !important; transition-duration: 0.001ms !important; }
 }
+/* Low-end devices (`lite`, set in main.jsx): the same, so nothing loops and
+   the browser draws a frame only when something changes. Measured on a 4x
+   slowed CPU during a call: the page's extra CPU fell from 28% to about 6%
+   of a core. Who is speaking still shows: the card's lime border, and the
+   bars standing still at full height. */
+html.lite *, html.lite *::before, html.lite *::after { animation-duration: 0.001ms !important; animation-iteration-count: 1 !important; transition-duration: 0.001ms !important; }
+html.lite .wave.on i { transform: none; }
 
 /* ------------------------------------------------------------ jobs board */
 .jobs { max-width: 46rem; margin: 0 auto; padding: 0 16px 4rem; line-height: 1.55; }
