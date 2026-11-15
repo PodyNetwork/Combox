@@ -123,6 +123,18 @@ pub enum AuthError {
     KeysUnavailable,
 }
 
+impl AuthError {
+    /// 401 means "this session is no longer valid" and the dashboard asks
+    /// the user to sign in again. Not reaching Supabase for its signing keys
+    /// says nothing about the session, so it's a 503 the user can retry.
+    pub fn status(&self) -> axum::http::StatusCode {
+        match self {
+            AuthError::KeysUnavailable => axum::http::StatusCode::SERVICE_UNAVAILABLE,
+            AuthError::Missing | AuthError::Invalid => axum::http::StatusCode::UNAUTHORIZED,
+        }
+    }
+}
+
 fn validation(alg: Algorithm) -> Validation {
     let mut v = Validation::new(alg);
     v.set_audience(&["authenticated"]);

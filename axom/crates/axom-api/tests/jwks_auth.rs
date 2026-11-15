@@ -86,4 +86,7 @@ async fn jwks_and_legacy_secret_work_together_during_migration() {
     // A JWKS outage is reported as such.
     let down = AuthConfig::jwks("http://127.0.0.1:1/jwks.json");
     assert_eq!(session_from_bearer(&down, Some(&format!("Bearer {}", es256("key-1", &claims("aal2", Duration::hours(1)))))).await.err(), Some(AuthError::KeysUnavailable));
+    // ...and isn't a 401, which the dashboard reads as "your session ended".
+    assert_eq!(AuthError::KeysUnavailable.status(), axum::http::StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(AuthError::Invalid.status(), axum::http::StatusCode::UNAUTHORIZED);
 }

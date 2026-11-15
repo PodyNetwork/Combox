@@ -2,7 +2,7 @@
 // dashboard is usable only once the session reaches aal2. Judge mode (no
 // Supabase) accepts a locally minted session token from ./judge/token.sh.
 import { useEffect, useState } from "react";
-import { createClient } from "@supabase/supabase-js";
+import { createClient, isAuthRetryableFetchError } from "@supabase/supabase-js";
 import { Breakthrough, Button, ErrorNote, Eyebrow, Input, KineticText, Segmented } from "./ui.jsx";
 
 export const JUDGE_MODE = import.meta.env.VITE_JUDGE_MODE === "true";
@@ -45,12 +45,24 @@ function useJudgeSession() {
   return { session, aal: session ? { currentLevel: "aal2" } : null, refresh: () => setSession(judgeSession()) };
 }
 
-// session is undefined while loading, null when signed out.
+// session is undefined while loading, null when signed out. offline is set
+// when Supabase can't be reached, so the app can say so instead of showing
+// the sign-in form (which would only fail with a network error).
 function useSupabaseSession() {
   const [session, setSession] = useState(undefined);
   const [aal, setAal] = useState(null);
+  const [offline, setOffline] = useState(false);
   const refresh = async () => {
-    const { data } = await supabase.auth.getSession();
+    // supabase-js retries a failed token refresh for about 30 seconds; say
+    // it's unreachable after 8 and carry on by itself if it answers later.
+    const slow = setTimeout(() => setOffline(true), 8000);
+    const { data, error } = await supabase.auth.getSession();
+    clearTimeout(slow);
+    if (isAuthRetryableFetchError(error)) {
+      setOffline(true);
+      return;
+    }
+    setOffline(false);
     setSession(data.session);
     if (data.session) {
       const level = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
@@ -65,7 +77,7 @@ function useSupabaseSession() {
     const { data } = supabase.auth.onAuthStateChange(() => setTimeout(refresh, 0));
     return () => data.subscription.unsubscribe();
   }, []);
-  return { session, aal, refresh };
+  return { session, aal, refresh, offline };
 }
 
 export function useAal2Session() {
@@ -73,7 +85,7 @@ export function useAal2Session() {
   return JUDGE_MODE ? useJudgeSession() : useSupabaseSession();
 }
 
-export function signOut() {
+export async function signOut() {
   if (JUDGE_MODE) {
     try {
       sessionStorage.removeItem("axom-judge-token");
@@ -81,9 +93,19 @@ export function signOut() {
       /* ignore */
     }
     window.location.reload();
-  } else {
-    supabase.auth.signOut();
+    return;
   }
+  // Sign out everywhere if Supabase answers. When it can't be reached, or the
+  // saved token has expired and can't be refreshed, supabase-js keeps the
+  // saved session and returns an error, which left "Sign in again" doing
+  // nothing. So wait briefly, then drop the session from this browser anyway.
+  await Promise.race([supabase.auth.signOut().catch(() => {}), new Promise((r) => setTimeout(r, 3000))]);
+  try {
+    for (const k of Object.keys(localStorage)) if (k.startsWith(supabase.auth.storageKey)) localStorage.removeItem(k);
+  } catch {
+    /* storage unavailable */
+  }
+  window.location.reload();
 }
 
 export function Wordmark({ className = "" }) {
@@ -165,9 +187,11 @@ export function JudgeSignIn({ onDone }) {
   );
 }
 
+// Browsers word a failed request differently: "Failed to fetch" (Chrome),
+// "Load failed" (Safari), "NetworkError when attempting..." (Firefox).
 const friendly = (e) =>
-  /fetch|network/i.test(e.message)
-    ? `Can't reach Supabase at ${import.meta.env.VITE_SUPABASE_URL}. Check VITE_SUPABASE_URL in .env, then rebuild the dashboard.`
+  /fetch|network|load failed/i.test(e.message)
+    ? `Can't reach Supabase at ${import.meta.env.VITE_SUPABASE_URL}. Check your internet connection and DNS; if those are fine, check VITE_SUPABASE_URL in .env and rebuild the dashboard.`
     : e.message;
 
 export function SignIn({ onDone }) {

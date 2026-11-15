@@ -289,7 +289,7 @@ pub(crate) async fn admin(s: &AppState, headers: &HeaderMap) -> Result<(Approval
             bootstrap_owner(s, &session).await.map_err(|e| Box::new(ApiError(e.to_string()).into_response()))?;
             Ok((cfg, session))
         }
-        Err(e) => Err(Box::new(reply(StatusCode::UNAUTHORIZED, json!({ "error": e.to_string() })))),
+        Err(e) => Err(Box::new(reply(e.status(), json!({ "error": e.to_string() })))),
     }
 }
 

@@ -247,7 +247,7 @@ fn tenant_error(e: TenantError) -> Response {
 
 async fn session(ps: &PlatformState, headers: &HeaderMap) -> Result<AdminSession, Box<Response>> {
     let h = headers.get(axum::http::header::AUTHORIZATION).and_then(|v| v.to_str().ok());
-    auth::session_from_bearer(&ps.auth, h).await.map_err(|e| Box::new(reply(StatusCode::UNAUTHORIZED, json!({ "error": e.to_string() }))))
+    auth::session_from_bearer(&ps.auth, h).await.map_err(|e| Box::new(reply(e.status(), json!({ "error": e.to_string() }))))
 }
 
 /// The company and the caller's role, for a signed-in member.

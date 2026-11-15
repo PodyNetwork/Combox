@@ -1,13 +1,30 @@
 // Client for the Combox API. Every call carries the Supabase access token.
 // On the multi-tenant platform, company endpoints live under /t/<company>.
+import { JUDGE_MODE, supabase } from "./Auth.jsx";
+
 export const API = (import.meta.env.VITE_AXOM_API_URL || "http://localhost:8080").replace(/\/$/, "");
 
 // Fired when the API rejects the session (expired or revoked token), so the
 // shell can ask the user to sign in again instead of every panel erroring.
 export const UNAUTHORIZED_EVENT = "axom:unauthorized";
 
+// The token to send. The session the app holds can be stale: supabase-js
+// refreshes tokens only while the tab is visible, but polls keep running in
+// a background tab, so after about an hour away they would send an expired
+// token and the API would say the session ended. getSession() returns the
+// saved token, refreshed first if it's about to expire.
+async function bearer(session) {
+  if (!session) return {};
+  let token = session.access_token;
+  if (!JUDGE_MODE) {
+    const { data } = await supabase.auth.getSession().catch(() => ({ data: {} }));
+    token = data?.session?.access_token || token;
+  }
+  return { Authorization: `Bearer ${token}` };
+}
+
 export async function request(session, url, { method = "GET", body } = {}) {
-  const headers = { ...(session ? { Authorization: `Bearer ${session.access_token}` } : {}), ...(body ? { "Content-Type": "application/json" } : {}) };
+  const headers = { ...(await bearer(session)), ...(body ? { "Content-Type": "application/json" } : {}) };
   let res;
   try {
     res = await fetch(url, { method, headers, body: body ? JSON.stringify(body) : undefined });
@@ -25,7 +42,7 @@ export async function request(session, url, { method = "GET", body } = {}) {
 export async function download(session, url, filename) {
   let res;
   try {
-    res = await fetch(url, { headers: session ? { Authorization: `Bearer ${session.access_token}` } : {} });
+    res = await fetch(url, { headers: await bearer(session) });
   } catch {
     throw new Error(`Can't reach the Combox API at ${API}.`);
   }

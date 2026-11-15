@@ -76,7 +76,7 @@ function Checking() {
 }
 
 function Gate() {
-  const { session, aal, refresh } = useAal2Session();
+  const { session, aal, refresh, offline } = useAal2Session();
   const [mode, setMode] = useState(null);
   useEffect(() => {
     detectMode().then(setMode);
@@ -86,6 +86,16 @@ function Gate() {
     if (session === null) markSignedIn(false);
     else if (session && aal?.currentLevel === "aal2") markSignedIn(true);
   }, [session, aal]);
+  // Only before the dashboard has loaded: once it's open, it keeps working
+  // on its current token and API errors show on the page.
+  if (offline && session === undefined) {
+    return (
+      <AuthShell step="Can't connect" title="Sign-in service isn't answering">
+        <ErrorNote error={`Can't reach Supabase at ${import.meta.env.VITE_SUPABASE_URL}, which handles sign-in. Check your internet connection and DNS, then try again. You're still signed in; nothing was lost.`} />
+        <Button size="lg" className="mt-6 w-full" onClick={() => window.location.reload()}>Try again</Button>
+      </AuthShell>
+    );
+  }
   if (session === undefined || mode === null) return <Checking />;
   if (mode === "unreachable" || mode === "not-api") {
     const error = mode === "not-api"
