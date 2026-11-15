@@ -1,0 +1,134 @@
+<!--
+  DocuSeal template: freelancer-services-v1 (Combox freelancer contract).
+
+  Upload with infra/docuseal/upload-template.sh, which fills __COMPANY_NAME__
+  and __GOVERNING_LAW__ and calls DocuSeal's POST /api/templates/html.
+
+  Field names must match what axom-hr's send_contract fills
+  (axom/crates/axom-hr/src/hiring.rs): contractor_name, role, rate_usd,
+  pay_unit, payment. Those are prefilled and read-only. The contractor only
+  signs, dates, and confirms their tax residency.
+
+  There is exactly one signing role ("Contractor") because the adapter sends
+  one submitter. A second role would leave every submission incomplete.
+
+  DRAFT: have a lawyer review this text before the owner approves it.
+-->
+<html>
+<head>
+<style>
+  body { font-family: Helvetica, Arial, sans-serif; font-size: 11pt; line-height: 1.5; color: #111; margin: 48px; }
+  h1 { font-size: 18pt; margin: 0 0 4px; }
+  .sub { color: #555; margin: 0 0 24px; }
+  h2 { font-size: 12pt; margin: 22px 0 6px; }
+  table.terms { border-collapse: collapse; width: 100%; margin: 8px 0 16px; }
+  table.terms td { border: 1px solid #bbb; padding: 6px 10px; vertical-align: middle; }
+  table.terms td.k { width: 32%; background: #f3f3f3; font-weight: bold; }
+  ol { padding-left: 20px; }
+  li { margin-bottom: 6px; }
+  .sig td { padding: 6px 12px 6px 0; vertical-align: bottom; }
+</style>
+</head>
+<body>
+
+<h1>Freelance Services Agreement</h1>
+<p class="sub">Template freelancer-services-v1</p>
+
+<p>
+  This agreement is between <b>__COMPANY_NAME__</b> (the "Company") and the
+  contractor named below (the "Contractor"). The Company is operated with the
+  Combox platform, so hiring, task assignment, performance review and payment
+  are administered by software agents acting under rules set by the Company's
+  owner.
+</p>
+
+<h2>Key terms</h2>
+<table class="terms">
+  <tr>
+    <td class="k">Contractor</td>
+    <td><text-field name="contractor_name" role="Contractor" readonly="true" required="true" style="width: 320px; height: 20px; display: inline-block;"></text-field></td>
+  </tr>
+  <tr>
+    <td class="k">Role</td>
+    <td><text-field name="role" role="Contractor" readonly="true" required="true" style="width: 320px; height: 20px; display: inline-block;"></text-field></td>
+  </tr>
+  <tr>
+    <td class="k">Rate (USD)</td>
+    <td><text-field name="rate_usd" role="Contractor" readonly="true" required="true" style="width: 120px; height: 20px; display: inline-block;"></text-field>
+      per <text-field name="pay_unit" role="Contractor" readonly="true" required="true" style="width: 100px; height: 20px; display: inline-block;"></text-field></td>
+  </tr>
+  <tr>
+    <td class="k">Payment method</td>
+    <td><text-field name="payment" role="Contractor" readonly="true" required="true" style="width: 320px; height: 20px; display: inline-block;"></text-field></td>
+  </tr>
+</table>
+
+<h2>Terms</h2>
+<ol>
+  <li><b>Services.</b> The Contractor will perform tasks for the Role listed
+    above as assigned through the Company's task system. Each task states its
+    deliverable and acceptance criteria before work starts.</li>
+  <li><b>Independent contractor.</b> The Contractor is an independent
+    contractor, not an employee, partner or agent of the Company. The
+    Contractor decides how and when to do the work, provides their own
+    equipment, and is responsible for their own taxes.</li>
+  <li><b>Fees.</b> The Company pays the Rate above for each accepted unit of
+    work. The Contractor will not be paid for work that does not meet the
+    task's acceptance criteria, but may revise and resubmit it.</li>
+  <li><b>Payment.</b> Payment is made in cryptocurrency from the Company's
+    NEAR treasury, or on another supported chain through NEAR Intents, to an
+    address the Contractor has verified by signing a challenge with its key.
+    The Contractor is responsible for keeping that address and its keys
+    secure; a payment sent to the verified address is final. Payments may be
+    held for the owner's approval or deferred to the next calendar month when
+    the Company's monthly payout limit is reached; a deferred payment remains
+    owed.</li>
+  <li><b>Tax form.</b> No payment is made until the Contractor has completed
+    the applicable tax form (W-9 for US persons, W-8BEN otherwise), which the
+    Company will send separately.</li>
+  <li><b>Work product.</b> On payment, the Contractor assigns to the Company
+    all rights in the deliverables created under this agreement, except
+    pre-existing material and open-source components, for which the
+    Contractor grants the Company a perpetual, worldwide, royalty-free
+    licence to use them as part of the deliverables.</li>
+  <li><b>Confidentiality.</b> The Contractor will keep the Company's
+    non-public information confidential, use it only to perform the services,
+    and return or delete it when this agreement ends.</li>
+  <li><b>Performance review.</b> The Contractor's work is reviewed against
+    the key performance indicators of the Role. Reviews are carried out by
+    software agents; the Contractor may ask for a review by the Company's
+    owner by replying to any notice.</li>
+  <li><b>Automated communication.</b> The Contractor acknowledges that many
+    messages, interviews and reviews from the Company come from AI agents,
+    which will identify themselves as such.</li>
+  <li><b>Term and termination.</b> This agreement continues until either
+    party ends it by written notice (email is enough). The Company will pay
+    for all work accepted before the notice date.</li>
+  <li><b>Personal data.</b> The Company processes the Contractor's personal
+    data only to administer this agreement and keeps it no longer than needed
+    for that and for legal record keeping.</li>
+  <li><b>Entire agreement; law.</b> This is the entire agreement between the
+    parties on its subject. It is governed by the laws of __GOVERNING_LAW__.
+    Changes must be in writing and accepted by both parties.</li>
+</ol>
+
+<h2>Contractor details</h2>
+<p>
+  Tax residency:
+  <select-field name="tax_residency" role="Contractor" required="true" options="US person (W-9),Non-US person (W-8BEN)" style="width: 220px; height: 20px; display: inline-block;"></select-field>
+</p>
+
+<h2>Signature</h2>
+<p>By signing, the Contractor accepts this agreement. The Company accepts it
+  by sending it and by assigning the first task.</p>
+<table class="sig">
+  <tr>
+    <td>Signature<br>
+      <signature-field name="contractor_signature" role="Contractor" required="true" style="width: 240px; height: 70px; display: inline-block;"></signature-field></td>
+    <td>Date<br>
+      <date-field name="signed_on" role="Contractor" required="true" style="width: 140px; height: 20px; display: inline-block;"></date-field></td>
+  </tr>
+</table>
+
+</body>
+</html>

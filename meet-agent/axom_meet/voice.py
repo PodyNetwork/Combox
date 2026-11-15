@@ -8,6 +8,8 @@ text-to-speech instead; speech-to-text stays on Deepgram.
     AXOM_MEET_TTS        deepgram (default) | cartesia
     AXOM_MEET_TTS_VOICE  optional voice/model, e.g. aura-2-thalia-en
     AXOM_MEET_STT_MODEL  optional Deepgram STT model, e.g. nova-3
+    AXOM_MEET_STT_LANGUAGE  optional, default "en" (any English accent;
+                         "en-US" tunes for American English only)
 
 Settings are read through `key`: the company's own keys first, then this
 agent's environment (see `agent.entrypoint`).
@@ -42,7 +44,10 @@ def build_stt(key: Key | Mapping[str, str] | None = None):
     from livekit.plugins import deepgram
 
     get = _lookup(key)
-    opts = {"api_key": get("DEEPGRAM_API_KEY")}
+    # Deepgram also detects speech and the end of an answer (the agent runs no
+    # local speech model): 500 ms of silence ends a phrase, about what the
+    # local model needed, and the session waits a moment more before it answers.
+    opts = {"api_key": get("DEEPGRAM_API_KEY"), "language": get("AXOM_MEET_STT_LANGUAGE") or "en", "endpointing_ms": 500}
     if model := get("AXOM_MEET_STT_MODEL"):
         opts["model"] = model
     return deepgram.STT(**opts)

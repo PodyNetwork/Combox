@@ -55,7 +55,8 @@ function useAgentLog() {
     };
   }, [call]);
 
-  return { entries: byId, error, loaded };
+  // After a reply: read the whole log again, so no change made with it is missed.
+  return { entries: byId, error, loaded, resync: () => (rev.current = null) };
 }
 
 /** Group entries into one session per task, most recently active first. */
@@ -82,7 +83,7 @@ function sessionsOf(entries) {
 }
 
 export default function AgentLog() {
-  const { entries, error, loaded } = useAgentLog();
+  const { entries, error, loaded, resync } = useAgentLog();
   const sessions = useMemo(() => sessionsOf(entries), [entries]);
   // Follow the most recently active session until the viewer picks one.
   const [picked, setPicked] = useState(null);
@@ -122,7 +123,7 @@ export default function AgentLog() {
               ))}
             </ul>
           </Panel>
-          {current && <Transcript key={current.id} s={current} />}
+          {current && <Transcript key={current.id} s={current} onSent={resync} />}
         </div>
       )}
     </>
@@ -155,7 +156,7 @@ function SessionRow({ s, active, onClick }) {
   );
 }
 
-function Transcript({ s }) {
+function Transcript({ s, onSent }) {
   const end = useRef(null);
   const box = useRef(null);
   // Keep the newest line in view while following along; stop if the viewer
@@ -190,7 +191,7 @@ function Transcript({ s }) {
         ))}
         <li ref={end} aria-hidden="true" />
       </ol>
-      {s.awaiting && <ReplyBox taskId={s.id} worker={s.worker} />}
+      {s.awaiting && <ReplyBox taskId={s.id} worker={s.worker} onSent={onSent} />}
     </Panel>
   );
 }
@@ -224,7 +225,7 @@ export function ReplyBox({ taskId, worker, onSent, autoFocus = false }) {
       }}
     >
       <label htmlFor={`reply-${taskId}`} className="mb-2 block text-xs text-mute">
-        Reply to {worker}. It carries on with your answer within a minute.
+        Reply to {worker}. It carries on with your answer right away.
       </label>
       <textarea
         id={`reply-${taskId}`}

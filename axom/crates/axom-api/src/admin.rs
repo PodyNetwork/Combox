@@ -140,7 +140,10 @@ pub async fn join_link(State(s): State<AppState>, headers: HeaderMap, Path(id): 
 
 #[derive(Deserialize)]
 pub struct Dispatch {
+    #[serde(default)]
     pub instructions: String,
+    /// The owner's own questions; optional (the interviewer writes its own).
+    #[serde(default)]
     pub questions: Vec<String>,
     #[serde(default)]
     pub rubric: Option<Vec<Criterion>>,
@@ -154,7 +157,7 @@ pub async fn dispatch(State(s): State<AppState>, headers: HeaderMap, Path(id): P
     };
     match meetings::dispatch_agent(&s.pool, &svc.policy, svc.rooms.as_ref(), &actor, id, &b.instructions, &b.questions, b.rubric, &svc.public_api_url).await {
         // The callback token goes only to the agent (inside the dispatch metadata).
-        Ok(d) => reply(StatusCode::OK, json!({ "meeting_id": id, "dispatch_id": d.dispatch_id, "agent": if d.dispatch_id.is_some() { "sent" } else { "joins when the applicant does" } })),
+        Ok(d) => reply(StatusCode::OK, json!({ "meeting_id": id, "dispatch_id": d.dispatch_id, "agent": if d.dispatch_id.is_some() { "sent" } else { "joins when someone joins" } })),
         Err(e) => meeting_error(e),
     }
 }
@@ -276,6 +279,33 @@ pub async fn retry_task(State(s): State<AppState>, headers: HeaderMap, Path(id):
         Err(RetryError::NotFound) => reply(StatusCode::NOT_FOUND, json!({ "error": "task not found" })),
         Err(e @ RetryError::NotFailed(_)) => reply(StatusCode::CONFLICT, json!({ "error": e.to_string() })),
         Err(RetryError::Db(e)) => internal(e),
+    }
+}
+
+/// Start a queued task that was scheduled for later right away. Audited as
+/// this admin; the runtime is woken so it is routed at once.
+pub async fn start_task_now(State(s): State<AppState>, headers: HeaderMap, Path(id): Path<Uuid>) -> Response {
+    let (_, actor) = guard!(s, headers);
+    let run = async {
+        let mut tx = s.pool.begin().await?;
+        let row: Option<(String, DateTime<Utc>)> =
+            sqlx::query_as("SELECT status, start_at FROM axom.tasks WHERE id = $1 FOR UPDATE").bind(id).fetch_optional(&mut *tx).await?;
+        let Some((status, scheduled_for)) = row else { return Ok(Err(StatusCode::NOT_FOUND)) };
+        if status != "queued" || scheduled_for <= Utc::now() {
+            return Ok(Err(StatusCode::CONFLICT));
+        }
+        sqlx::query("UPDATE axom.tasks SET start_at = now(), updated_at = now() WHERE id = $1").bind(id).execute(&mut *tx).await?;
+        let ev = AuditEvent::new(&actor, "task.start_now", "started").inputs(json!({ "task_id": id, "was_scheduled_for": scheduled_for }));
+        audit::append(&mut *tx, &ev).await?;
+        sqlx::query("SELECT pg_notify('axom_tasks', $1)").bind(id.to_string()).execute(&mut *tx).await?;
+        tx.commit().await?;
+        Ok::<_, anyhow::Error>(Ok(()))
+    };
+    match run.await {
+        Ok(Ok(())) => reply(StatusCode::OK, json!({ "status": "queued" })),
+        Ok(Err(StatusCode::NOT_FOUND)) => reply(StatusCode::NOT_FOUND, json!({ "error": "task not found" })),
+        Ok(Err(code)) => reply(code, json!({ "error": "only a queued task scheduled for later can be started now" })),
+        Err(e) => internal(e),
     }
 }
 
@@ -561,6 +591,15 @@ fn base_policy(s: &AppState) -> Result<std::sync::Arc<axom_hr::PolicyConfig>, Bo
     s.approvals.as_ref().map(|a| a.policy.clone()).ok_or_else(|| Box::new(reply(StatusCode::SERVICE_UNAVAILABLE, json!({ "error": "approvals are not configured" }))))
 }
 
+/// The rules the Settings page shows, for the platform or in effect.
+fn rules_json(p: &axom_hr::PolicyConfig) -> Value {
+    json!({
+        "approval_threshold_usd": p.payouts().approval_threshold_usd,
+        "candidate_retention_days": p.file.privacy.candidate_retention_days,
+        "treasury_yield_enabled": p.treasury().yield_enabled,
+    })
+}
+
 pub async fn company_policy(State(s): State<AppState>, headers: HeaderMap) -> Response {
     guard!(s, headers);
     let base = match base_policy(&s) {
@@ -570,12 +609,14 @@ pub async fn company_policy(State(s): State<AppState>, headers: HeaderMap) -> Re
     match axom_hr::company_policy::load(&s.pool).await {
         Ok((rules, changed)) => {
             let eff = axom_hr::company_policy::apply(&base, &rules);
+            let mut effective = rules_json(&eff);
+            effective["version"] = json!(eff.version());
             reply(
                 StatusCode::OK,
                 json!({
-                    "platform": { "approval_threshold_usd": base.payouts().approval_threshold_usd, "candidate_retention_days": base.file.privacy.candidate_retention_days },
+                    "platform": rules_json(&base),
                     "company": rules,
-                    "effective": { "approval_threshold_usd": eff.payouts().approval_threshold_usd, "candidate_retention_days": eff.file.privacy.candidate_retention_days, "version": eff.version() },
+                    "effective": effective,
                     "updated_by": changed.as_ref().map(|c| c.0.clone()),
                     "updated_at": changed.map(|c| c.1),
                 }),
@@ -593,7 +634,7 @@ pub async fn set_company_policy(State(s): State<AppState>, headers: HeaderMap, J
     };
     use axom_hr::company_policy::CompanyRulesError as E;
     match axom_hr::company_policy::set(&s.pool, &base, &actor, &b).await {
-        Ok(eff) => reply(StatusCode::OK, json!({ "effective": { "approval_threshold_usd": eff.payouts().approval_threshold_usd, "candidate_retention_days": eff.file.privacy.candidate_retention_days } })),
+        Ok(eff) => reply(StatusCode::OK, json!({ "effective": rules_json(&eff) })),
         Err(E::Denied(m)) => reply(StatusCode::FORBIDDEN, json!({ "error": m })),
         Err(E::Invalid(m)) => reply(StatusCode::BAD_REQUEST, json!({ "error": m })),
         Err(E::Db(e)) => internal(e),

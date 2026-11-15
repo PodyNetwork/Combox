@@ -195,6 +195,7 @@ pub async fn bootstrap(
             status: TaskStatus::Queued,
             result: None,
             cost_usd: Decimal::ZERO,
+            start_at: None, worker_kind: None,
         };
         let placement = TaskPlacement { plan_id: Some(plan_id), department_id: dept_ids.get(&t.department).copied(), seq: seq as i32 };
         db::insert_task(&mut *tx, &task, &placement).await?;

@@ -319,15 +319,15 @@ async fn company_rules_can_only_be_stricter(pool: PgPool) {
     let now = nov(10);
 
     // Only an MFA admin can change them, and only to stricter values.
-    let lower = CompanyRules { approval_threshold_usd: Some(dec!(20)), candidate_retention_days: Some(30) };
+    let lower = CompanyRules { approval_threshold_usd: Some(dec!(20)), candidate_retention_days: Some(30), treasury_yield_enabled: None };
     let not_mfa = Actor::Admin { name: "owner".into(), mfa_verified: false };
     assert!(matches!(company_policy::set(&pool, &base, &not_mfa, &lower).await, Err(CompanyRulesError::Denied(_))));
     assert!(matches!(company_policy::set(&pool, &base, &Actor::agent("hr"), &lower).await, Err(CompanyRulesError::Denied(_))));
-    let looser = CompanyRules { approval_threshold_usd: Some(dec!(500)), candidate_retention_days: None };
+    let looser = CompanyRules { approval_threshold_usd: Some(dec!(500)), candidate_retention_days: None, treasury_yield_enabled: None };
     assert!(matches!(company_policy::set(&pool, &base, &admin(), &looser).await, Err(CompanyRulesError::Invalid(_))));
-    let zero = CompanyRules { approval_threshold_usd: Some(dec!(0)), candidate_retention_days: None };
+    let zero = CompanyRules { approval_threshold_usd: Some(dec!(0)), candidate_retention_days: None, treasury_yield_enabled: None };
     assert!(matches!(company_policy::set(&pool, &base, &admin(), &zero).await, Err(CompanyRulesError::Invalid(_))));
-    let longer = CompanyRules { approval_threshold_usd: None, candidate_retention_days: Some(365) };
+    let longer = CompanyRules { approval_threshold_usd: None, candidate_retention_days: Some(365), treasury_yield_enabled: None };
     assert!(matches!(company_policy::set(&pool, &base, &admin(), &longer).await, Err(CompanyRulesError::Invalid(_))));
 
     // Under the platform's $50 rule a $30 payout goes out automatically...
@@ -345,6 +345,32 @@ async fn company_rules_can_only_be_stricter(pool: PgPool) {
     let (n,): (i64,) = sqlx::query_as("SELECT count(*) FROM axom.audit_log WHERE action = 'policy.company_rules'").fetch_one(&pool).await.unwrap();
     assert_eq!(n, 1);
     // Clearing them returns to the platform's rules.
+    company_policy::set(&pool, &base, &admin(), &CompanyRules::default()).await.unwrap();
+    assert_eq!(company_policy::effective(&base, &pool).await.version(), base.version());
+}
+
+#[sqlx::test(migrator = "axom_core::MIGRATOR")]
+async fn treasury_yield_is_a_company_setting(pool: PgPool) {
+    use axom_hr::company_policy::{self, CompanyRules, CompanyRulesError};
+    let base = setup(&pool).await;
+    assert!(!company_policy::effective(&base, &pool).await.treasury().yield_enabled, "off until the owner turns it on");
+
+    // Only an MFA admin can turn it on.
+    let on = CompanyRules { treasury_yield_enabled: Some(true), ..Default::default() };
+    let not_mfa = Actor::Admin { name: "owner".into(), mfa_verified: false };
+    assert!(matches!(company_policy::set(&pool, &base, &not_mfa, &on).await, Err(CompanyRulesError::Denied(_))));
+    company_policy::set(&pool, &base, &admin(), &on).await.unwrap();
+    let eff = company_policy::effective(&base, &pool).await;
+    assert!(eff.treasury().yield_enabled);
+    assert_eq!(eff.payouts(), base.payouts(), "turning yield on changes no payout rule");
+    let (stored, _) = company_policy::load(&pool).await.unwrap();
+    assert_eq!(stored.treasury_yield_enabled, Some(true));
+    let changes = audit::by_action(&pool, "policy.company_rules").await.unwrap();
+    assert_eq!(changes.last().unwrap().inputs["after"]["treasury_yield_enabled"], true, "audited");
+
+    // Off again, and back to the platform default.
+    company_policy::set(&pool, &base, &admin(), &CompanyRules { treasury_yield_enabled: Some(false), ..Default::default() }).await.unwrap();
+    assert!(!company_policy::effective(&base, &pool).await.treasury().yield_enabled);
     company_policy::set(&pool, &base, &admin(), &CompanyRules::default()).await.unwrap();
     assert_eq!(company_policy::effective(&base, &pool).await.version(), base.version());
 }

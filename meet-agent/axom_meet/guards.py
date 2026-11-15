@@ -60,6 +60,37 @@ def classify_consent(text: str) -> str | None:
     return None
 
 
+# The participant asking to end the call. Only requests count, not stories
+# ("I like to end the meeting with a recap" is an answer, not a request):
+# a first-person wish or a "can we / let's / please" ask about this call, or
+# a short utterance that is nothing but "can we stop" or "goodbye".
+_CALL = r"(?:the|this|our)\s+(?:interview|meeting|call|session|conversation)"
+_END_VERB = r"(?:end|stop|finish|close|terminate|cancel|quit|leave|exit|wrap\s+up|drop\s+(?:off\s+)?(?:of\s+)?)"
+_END_CALL = re.compile(
+    rf"\b(?:i|we)(?:'d\s+like|\s+would\s+like|\s+(?:really\s+|just\s+)?(?:want|wanna|wish|need|have|prefer))\s+to\s+{_END_VERB}\s+{_CALL}"
+    rf"|\b(?:can|could|may)\s+(?:we|you|i)\s+(?:please\s+)?{_END_VERB}\s+{_CALL}"
+    rf"|\b(?:let'?s|let\s+us)\s+{_END_VERB}\s+{_CALL}"
+    rf"|^\W*(?:(?:ok(?:ay)?|actually|sorry|please)\W+)*{_END_VERB}\s+{_CALL}"
+    r"|\b(?:please\s+)?hang\s+up(?:\s+(?:now|the\s+call))?\W*$",
+    re.IGNORECASE,
+)
+_END_CALL_SHORT = re.compile(
+    r"^\W*(?:(?:ok(?:ay)?|actually|sorry|so|um+|uh+)\W+)*"
+    r"(?:(?:can|could)\s+we\s+(?:please\s+)?(?:stop|end|finish|wrap\s+up|end\s+it|stop\s+it|end\s+this|stop\s+this)"
+    r"|(?:let'?s|let\s+us)\s+(?:stop|end|finish|wrap\s+up|end\s+it|stop\s+it|end\s+this|stop\s+this|call\s+it\s+a\s+day)"
+    r"|i(?:'d|\s+would)\s+like\s+to\s+(?:stop|end|leave|quit)|i\s+(?:want|wanna|need|have)\s+to\s+(?:stop|leave|go|quit)"
+    r"|i'?m\s+(?:done|leaving)|(?:please\s+)?(?:stop|end)\s+(?:it|this|the\s+call)|good\s*bye|bye(?:\s+bye)?)"
+    r"(?:\W+(?:here|now|there|please|thanks|thank\s+you|for\s+now|for\s+today|bye))*\W*$",
+    re.IGNORECASE,
+)
+
+
+def wants_to_end(text: str) -> bool:
+    """True if the participant is asking to end the call now."""
+    t = " ".join(text.translate(_APOSTROPHES).split())
+    return bool(_END_CALL.search(t) or _END_CALL_SHORT.search(t))
+
+
 def mentions_pay_or_terms(text: str) -> bool:
     return bool(_PAY_TERMS.search(text))
 
@@ -79,6 +110,30 @@ def safe_follow_up(text: str | None) -> str | None:
     if is_commitment(t) or mentions_pay_or_terms(t):
         return None
     return t
+
+
+# Topics an interview question may never touch (protected characteristics).
+_PROTECTED = re.compile(
+    r"\b(age|ages|aged|how old|birth ?(date|day|year)|gender|sex|race|racial|ethnic\w*|nationality|national origin|"
+    r"citizen\w*|immigra\w*|religio\w*|church|faith|disab\w*|handicap\w*|health|medical|illness|pregnan\w*|"
+    r"marital|married|marriage|spouse|husband|wife|partner'?s|children|kids|family plans|sexual\w*|orientation|"
+    r"veteran|military status|genetic\w*|accent|appearance|skin|colou?r of)\b",
+    re.IGNORECASE,
+)
+
+
+def mentions_protected(text: str) -> bool:
+    return bool(_PROTECTED.search(text))
+
+
+def safe_question(text: str | None) -> str | None:
+    """Accept a generated interview question only if it is one short,
+    job-related question: no pay or terms, no commitments, and nothing about
+    protected characteristics."""
+    q = safe_follow_up(text)
+    if q is None or mentions_protected(q) or len(q) < 12:
+        return None
+    return q
 
 
 def untrusted_block(source: str, content: str) -> str:

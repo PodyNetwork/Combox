@@ -80,11 +80,15 @@ export const tidy = (text) => String(text ?? "").replace(LONG_ID, (m) => shortId
 /**
  * Load a company endpoint; returns { data, error, loading, reload }. A null
  * path loads nothing. With { poll: ms } it refreshes on that interval; a
- * failed refresh keeps the data already on screen.
+ * failed refresh keeps the data already on screen. The last answer for each
+ * path is shown at once on the next visit while a fresh one loads.
  */
+const lastAnswer = new Map();
 export function useLoad(path, { poll } = {}) {
+  const { session, base } = useApp();
   const call = useCompanyApi();
-  const [data, setData] = useState(null);
+  const key = path && `${session?.user?.id} ${base}${path}`;
+  const [data, setData] = useState(() => (key && lastAnswer.get(key)) ?? null);
   const [error, setError] = useState(null);
   // Only the latest request may update state, so a slow poll that started
   // before an action can't overwrite the fresher result after it.
@@ -95,12 +99,14 @@ export function useLoad(path, { poll } = {}) {
     call(path).then(
       (d) => {
         if (id !== seq.current) return;
+        if (lastAnswer.size > 200) lastAnswer.clear();
+        lastAnswer.set(key, d);
         setData(d);
         setError(null);
       },
       (e) => id === seq.current && setError(e.message),
     );
-  }, [call, path]);
+  }, [call, path, key]);
   useEffect(() => {
     reload();
     if (!poll || !path) return;
@@ -596,5 +602,23 @@ export function Icon({ name, size = 18, className = "" }) {
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
       <path d={PATHS[name]} />
     </svg>
+  );
+}
+
+// An on/off switch in the control-room style.
+export function Toggle({ on, onChange, label: name, disabled, small = false }) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={on}
+      aria-label={name}
+      title={on ? "Turn off" : "Turn on"}
+      disabled={disabled}
+      onClick={() => onChange(!on)}
+      className={`relative inline-flex shrink-0 items-center rounded-full p-0.5 transition-colors duration-300 disabled:opacity-40 ${small ? "h-5 w-9" : "h-6 w-11"} ${on ? "bg-lime" : "bg-white/10 ring-1 ring-inset ring-white/10 hover:bg-white/15"}`}
+    >
+      <span className={`block rounded-full shadow transition-transform duration-300 ${small ? "size-4" : "size-5"} ${on ? `bg-ink ${small ? "translate-x-4" : "translate-x-5"}` : "bg-fog/70"}`} />
+    </button>
   );
 }

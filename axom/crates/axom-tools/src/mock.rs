@@ -32,6 +32,9 @@ pub struct MockTools {
     intake_len: Mutex<u64>,
     applicants: Mutex<Vec<Applicant>>,
     submission_status: Mutex<Option<SubmissionStatus>>,
+    /// Rooms the meeting agent is in: added by `dispatch_agent`, removed by
+    /// `end_room` and [`MockTools::agent_left`].
+    agents_in_rooms: Mutex<std::collections::HashSet<String>>,
 }
 
 impl MockTools {
@@ -42,6 +45,12 @@ impl MockTools {
     pub fn with_output(self, tool: &str, output: &str) -> Self {
         self.outputs.lock().unwrap().insert(tool.into(), output.into());
         self
+    }
+
+    /// The meeting agent leaves a room (the person left, it finished, or it
+    /// crashed), as LiveKit would report it.
+    pub fn agent_left(&self, room: &str) {
+        self.agents_in_rooms.lock().unwrap().remove(room);
     }
 
     pub fn with_failure(self, tool: &str, err: ToolError) -> Self {
@@ -190,10 +199,16 @@ impl MeetingRooms for MockTools {
     }
     async fn dispatch_agent(&self, auth: &Authorized, room: &str, agent_name: &str, metadata: &str) -> ToolResult<String> {
         self.record("livekit", "dispatch_agent", Some(auth), json!({ "room": room, "agent_name": agent_name, "metadata": metadata }));
+        self.agents_in_rooms.lock().unwrap().insert(room.to_string());
         Ok(Self::id("dispatch"))
+    }
+    async fn agent_in_room(&self, auth: &Authorized, room: &str, agent_name: &str) -> ToolResult<bool> {
+        self.record("livekit", "agent_in_room", Some(auth), json!({ "room": room, "agent_name": agent_name }));
+        Ok(self.agents_in_rooms.lock().unwrap().contains(room))
     }
     async fn end_room(&self, auth: &Authorized, room: &str) -> ToolResult<()> {
         self.record("livekit", "end_room", Some(auth), json!({ "room": room }));
+        self.agents_in_rooms.lock().unwrap().remove(room);
         Ok(())
     }
 }

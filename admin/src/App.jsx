@@ -62,6 +62,17 @@ export default function App() {
   );
 }
 
+// While the saved session is read and the API answers: a plain screen, not
+// the sign-in layout, so a signed-in reload never flashes the sign-in page.
+// The mark fades in only if the check takes a moment.
+function Checking() {
+  return (
+    <div className="grid min-h-screen place-items-center" aria-busy="true" aria-label="Loading">
+      <div className="reveal" style={{ "--i": 10 }}><Wordmark /></div>
+    </div>
+  );
+}
+
 function Gate() {
   const { session, aal, refresh } = useAal2Session();
   const [mode, setMode] = useState(null);
@@ -73,7 +84,7 @@ function Gate() {
     if (session === null) markSignedIn(false);
     else if (session && aal?.currentLevel === "aal2") markSignedIn(true);
   }, [session, aal]);
-  if (session === undefined || mode === null) return <AuthShell step="Checking" title="One moment…" />;
+  if (session === undefined || mode === null) return <Checking />;
   if (mode === "unreachable" || mode === "not-api") {
     const error = mode === "not-api"
       ? `${API} answered, but it isn't the Combox API (it's usually on port 8080). Set VITE_AXOM_API_URL to the API's address, e.g. http://localhost:8080, and rebuild the dashboard.`
@@ -86,7 +97,7 @@ function Gate() {
     );
   }
   if (!session) return JUDGE_MODE ? <JudgeSignIn onDone={refresh} /> : <SignIn onDone={refresh} />;
-  if (!aal) return <AuthShell step="Checking" title="One moment…" />;
+  if (!aal) return <Checking />;
   if (aal.currentLevel !== "aal2") return <Mfa onDone={refresh} />;
   return <Shell session={session} mode={mode} />;
 }
@@ -127,7 +138,7 @@ function Shell({ session, mode }) {
       </AuthShell>
     );
   }
-  if (isPlatform && !me) return <AuthShell step="Checking" title="One moment…" />;
+  if (isPlatform && !me) return <Checking />;
 
   const companies = me?.companies || [];
   // An operator without a company of their own still gets the platform page.

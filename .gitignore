@@ -9,3 +9,11 @@ secrets/
 
 # OpenBao TLS key and certificate for the Coolify resource (never commit).
 infra/coolify/tls/
+
+# Claude Code worktrees and build output (never commit).
+.claude/worktrees/
+dist/
+judge/out/
+judge/.bin/
+.pytest_cache/
+.ruff_cache/

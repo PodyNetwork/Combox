@@ -163,6 +163,7 @@ pub fn routes(state: AppState) -> Router {
         .route("/admin/notifications", get(admin::feed))
         .route("/admin/agent-log", get(admin::agent_log))
         .route("/admin/tasks/{id}/retry", post(admin::retry_task))
+        .route("/admin/tasks/{id}/start-now", post(admin::start_task_now))
         .route("/admin/tasks/{id}/reply", post(admin::reply_to_task))
         .route("/admin/kill-switch", get(admin::kill_switch_state).post(admin::set_kill_switch))
         .route("/admin/candidates/{id}/delete", post(admin::delete_candidate))

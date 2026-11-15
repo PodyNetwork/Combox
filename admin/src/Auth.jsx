@@ -108,7 +108,8 @@ export function AuthShell({ step, title, children }) {
         <Wordmark />
         <div className="relative my-auto">
           <Breakthrough className="-ml-2" />
-          <h1 className="relative mt-10 font-display text-4xl font-semibold leading-none tracking-tight xl:text-5xl">
+          <p className="relative mt-10 font-mono text-xs uppercase tracking-[0.18em] text-lime">Run your company in a box</p>
+          <h1 className="relative mt-4 font-display text-4xl font-semibold leading-none tracking-tight xl:text-5xl">
             <KineticText text="Agents do the work." />
             <br />
             <span className="text-lime"><KineticText text="You hold the money." delay={19} /></span>

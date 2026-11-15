@@ -16,11 +16,12 @@ use uuid::Uuid;
 
 /// Pick the eligible worker with the lowest load. Ties go to the earlier
 /// worker in `workers` (callers pass them in creation order).
-/// Human workers are never chosen for tool-execution tasks.
-pub fn choose_worker<'a>(caps: &Capabilities, workers: &'a [Worker], loads: &HashMap<Uuid, i64>) -> Option<&'a Worker> {
+/// Human workers are never chosen for tool-execution tasks. `want` limits
+/// the choice to one kind of worker (the owner's choice on the task).
+pub fn choose_worker<'a>(caps: &Capabilities, want: Option<WorkerKind>, workers: &'a [Worker], loads: &HashMap<Uuid, i64>) -> Option<&'a Worker> {
     workers
         .iter()
-        .filter(|w| w.status.can_receive_work() && w.covers(caps))
+        .filter(|w| w.status.can_receive_work() && w.covers(caps) && want.is_none_or(|k| k == w.kind))
         .min_by_key(|w| loads.get(&w.id).copied().unwrap_or(0))
 }
 
@@ -28,7 +29,8 @@ pub fn choose_worker<'a>(caps: &Capabilities, workers: &'a [Worker], loads: &Has
 /// always need an AI agent; otherwise a planned human role that covers the
 /// skills means a freelancer, else an AI agent.
 pub fn hire_kind(caps: &Capabilities, human_role_skills: &[Vec<String>]) -> WorkerKind {
-    if caps.is_tool_execution() {
+    // With no skills there is nothing to post a freelance job for.
+    if caps.is_tool_execution() || caps.skills.is_empty() {
         return WorkerKind::AiAgent;
     }
     let covered = human_role_skills
@@ -49,7 +51,8 @@ pub struct RoutingReport {
     pub awaiting_hire: Vec<Uuid>,
 }
 
-/// Route every queued task. Serialized across processes with an advisory
+/// Route every queued task whose start time has come (scheduled tasks wait
+/// until their `start_at`). Serialized across processes with an advisory
 /// lock so two routers never double-assign.
 pub async fn route_queued(pool: &PgPool, actor: &Actor) -> anyhow::Result<RoutingReport> {
     let mut lock_conn = pool.acquire().await?;
@@ -67,15 +70,20 @@ async fn route_queued_locked(pool: &PgPool, actor: &Actor) -> anyhow::Result<Rou
     let human_role_skills: Vec<Vec<String>> = human_roles.into_iter().map(|r| r.0).collect();
 
     let mut report = RoutingReport::default();
-    for task in db::tasks_with_status(pool, TaskStatus::Queued).await? {
-        match choose_worker(&task.required_capabilities, &workers, &loads) {
+    for task in db::due_queued_tasks(pool).await? {
+        match choose_worker(&task.required_capabilities, task.worker_kind, &workers, &loads) {
             Some(w) => {
                 assign(pool, actor, &task, w).await?;
                 *loads.entry(w.id).or_insert(0) += 1;
                 report.assigned.push((task.id, w.id));
             }
             None => {
-                let kind = hire_kind(&task.required_capabilities, &human_role_skills);
+                // The owner's choice wins, except that a human never gets a tool task.
+                let kind = match task.worker_kind {
+                    Some(WorkerKind::HumanFreelancer) if task.required_capabilities.is_tool_execution() => WorkerKind::AiAgent,
+                    Some(k) => k,
+                    None => hire_kind(&task.required_capabilities, &human_role_skills),
+                };
                 match open_hiring_request(pool, actor, &task, kind).await? {
                     Some(id) => report.hiring_requests.push(id),
                     None => report.awaiting_hire.push(task.id),
@@ -112,12 +120,15 @@ pub async fn assign(pool: &PgPool, actor: &Actor, task: &Task, worker: &Worker) 
     Ok(())
 }
 
+/// Why routing opened a hiring request.
+pub const NO_WORKER_REASON: &str = "no active worker covers the required capabilities";
+
 /// Open a hiring request for a task unless one is already open.
 /// Returns the new request id, or `None` if one already existed.
 pub async fn open_hiring_request(pool: &PgPool, actor: &Actor, task: &Task, kind: WorkerKind) -> anyhow::Result<Option<Uuid>> {
     let tools: Vec<String> = task.required_capabilities.tools.iter().cloned().collect();
     let skills: Vec<String> = task.required_capabilities.skills.iter().cloned().collect();
-    insert_request(pool, actor, task.id, kind, &tools, &skills, Extra::default(), "no active worker covers the required capabilities").await
+    insert_request(pool, actor, task.id, kind, &tools, &skills, Extra::default(), NO_WORKER_REASON).await
 }
 
 /// A freelancer an AI worker asks HR to hire (already checked).
@@ -223,12 +234,12 @@ mod tests {
         let workers = vec![a.clone(), b.clone(), c];
         let caps = Capabilities::new(["code_repo"], ["software_engineering"]);
         let mut loads = HashMap::from([(a.id, 3), (b.id, 1)]);
-        assert_eq!(choose_worker(&caps, &workers, &loads).unwrap().id, b.id);
+        assert_eq!(choose_worker(&caps, None, &workers, &loads).unwrap().id, b.id);
         loads.insert(b.id, 5);
-        assert_eq!(choose_worker(&caps, &workers, &loads).unwrap().id, a.id);
+        assert_eq!(choose_worker(&caps, None, &workers, &loads).unwrap().id, a.id);
         // Ties go to the earlier worker.
         loads.clear();
-        assert_eq!(choose_worker(&caps, &workers, &loads).unwrap().id, a.id);
+        assert_eq!(choose_worker(&caps, None, &workers, &loads).unwrap().id, a.id);
     }
 
     #[test]
@@ -237,16 +248,28 @@ mod tests {
         let suspended = w("s", WorkerKind::AiAgent, WorkerStatus::Suspended, &["code_repo"], &["software_engineering"]);
         let other = w("o", WorkerKind::AiAgent, WorkerStatus::Active, &["code_repo"], &["testing"]);
         let caps = Capabilities::new(["code_repo"], ["software_engineering"]);
-        assert!(choose_worker(&caps, &[fired, suspended, other], &HashMap::new()).is_none());
+        assert!(choose_worker(&caps, None, &[fired, suspended, other], &HashMap::new()).is_none());
     }
 
     #[test]
     fn humans_never_get_tool_tasks() {
         let h = w("h", WorkerKind::HumanFreelancer, WorkerStatus::Active, &[], &["copywriting"]);
         let tool_task = Capabilities::new(["postiz"], ["copywriting"]);
-        assert!(choose_worker(&tool_task, std::slice::from_ref(&h), &HashMap::new()).is_none());
+        assert!(choose_worker(&tool_task, None, std::slice::from_ref(&h), &HashMap::new()).is_none());
         let brief = Capabilities::new(Vec::<String>::new(), ["copywriting"]);
-        assert_eq!(choose_worker(&brief, std::slice::from_ref(&h), &HashMap::new()).unwrap().id, h.id);
+        assert_eq!(choose_worker(&brief, None, std::slice::from_ref(&h), &HashMap::new()).unwrap().id, h.id);
+    }
+
+    #[test]
+    fn owner_choice_limits_the_kind() {
+        let ai = w("a", WorkerKind::AiAgent, WorkerStatus::Active, &[], &["copywriting"]);
+        let h = w("h", WorkerKind::HumanFreelancer, WorkerStatus::Active, &[], &["copywriting"]);
+        let (ai_id, h_id) = (ai.id, h.id);
+        let workers = [ai, h];
+        let brief = Capabilities::new(Vec::<String>::new(), ["copywriting"]);
+        assert_eq!(choose_worker(&brief, Some(WorkerKind::HumanFreelancer), &workers, &HashMap::new()).unwrap().id, h_id);
+        assert_eq!(choose_worker(&brief, Some(WorkerKind::AiAgent), &workers, &HashMap::new()).unwrap().id, ai_id);
+        assert!(choose_worker(&brief, Some(WorkerKind::HumanFreelancer), &workers[..1], &HashMap::new()).is_none());
     }
 
     #[test]

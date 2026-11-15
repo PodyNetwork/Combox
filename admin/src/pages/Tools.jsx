@@ -3,7 +3,7 @@
 // code_repo, postiz, ...) are filled by connecting a server with that name.
 // A worker uses a tool only once it's on the worker's list (Team page).
 import { useState } from "react";
-import { Badge, Button, Chip, ErrorNote, Eyebrow, Icon, Input, KineticText, Loading, Modal, PageHead, Panel, PanelHead, Segmented, ago, useApp, useCompanyApi, useLoad, when } from "../ui.jsx";
+import { Badge, Button, Chip, ErrorNote, Eyebrow, Icon, Input, KineticText, Loading, Modal, PageHead, Panel, PanelHead, Segmented, Toggle, ago, useApp, useCompanyApi, useLoad, when } from "../ui.jsx";
 
 // Icons the shared set doesn't have.
 const REFRESH = "M20 11a8 8 0 0 0-14.3-4.9L4 8M4 4v4h4M4 13a8 8 0 0 0 14.3 4.9L20 16M20 20v-4h-4";
@@ -88,24 +88,6 @@ function Standard({ tools, onConnect }) {
         ))}
       </ul>
     </Panel>
-  );
-}
-
-// An on/off switch in the control-room style.
-function Toggle({ on, onChange, label: name, disabled, small = false }) {
-  return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={on}
-      aria-label={name}
-      title={on ? "Turn off" : "Turn on"}
-      disabled={disabled}
-      onClick={() => onChange(!on)}
-      className={`relative inline-flex shrink-0 items-center rounded-full p-0.5 transition-colors duration-300 disabled:opacity-40 ${small ? "h-5 w-9" : "h-6 w-11"} ${on ? "bg-lime" : "bg-white/10 ring-1 ring-inset ring-white/10 hover:bg-white/15"}`}
-    >
-      <span className={`block rounded-full shadow transition-transform duration-300 ${small ? "size-4" : "size-5"} ${on ? `bg-ink ${small ? "translate-x-4" : "translate-x-5"}` : "bg-fog/70"}`} />
-    </button>
   );
 }
 

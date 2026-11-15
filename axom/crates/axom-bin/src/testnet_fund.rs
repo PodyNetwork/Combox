@@ -97,7 +97,7 @@ pub async fn run(args: Vec<String>) -> anyhow::Result<()> {
     let want = near::near_to_yocto(amount)?;
 
     ensure!(env("NEAR_NETWORK").as_deref() != Some("mainnet"), "NEAR_NETWORK=mainnet: this only sends testnet NEAR");
-    let rpc_url = env("NEAR_RPC_URL").unwrap_or_else(|| "https://rpc.testnet.near.org".into());
+    let rpc_url = env("NEAR_RPC_URL").unwrap_or_else(|| "https://rpc.testnet.fastnear.com".into());
     ensure!(rpc_url.contains("testnet") && !rpc_url.contains("mainnet"), "testnet only (NEAR_RPC_URL={rpc_url})");
     let rpc = JsonRpcNear::new(&rpc_url);
 

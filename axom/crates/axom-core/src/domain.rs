@@ -182,6 +182,13 @@ pub struct Task {
     pub status: TaskStatus,
     pub result: Option<serde_json::Value>,
     pub cost_usd: Decimal,
+    /// When work on the task may start. Nothing routes or runs it before
+    /// then. `None` on a new task means now (the database fills it in).
+    #[serde(default)]
+    pub start_at: Option<DateTime<Utc>>,
+    /// Who should do it, as the owner chose; `None` lets routing decide.
+    #[serde(default)]
+    pub worker_kind: Option<WorkerKind>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

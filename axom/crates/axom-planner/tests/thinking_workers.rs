@@ -89,6 +89,7 @@ async fn task(pool: &PgPool, worker: Uuid, tool: &str) -> Uuid {
         status: TaskStatus::Queued,
         result: None,
         cost_usd: Decimal::ZERO,
+        start_at: None, worker_kind: None,
     };
     db::insert_task(pool, &t, &Default::default()).await.unwrap();
     sqlx::query("UPDATE axom.tasks SET status = 'assigned', assignee = $2 WHERE id = $1").bind(t.id).bind(worker).execute(pool).await.unwrap();
@@ -442,7 +443,7 @@ async fn a_worker_asks_waits_for_a_reply_and_carries_on(pool: PgPool) {
     let answers = m[2]["content"].as_array().unwrap();
     assert_eq!(answers[0]["tool_use_id"], "r1");
     assert_eq!(answers[1]["tool_use_id"], "q1");
-    assert_eq!(answers[1]["content"], "Ada replied:\nAgency owners. About 100 words.");
+    assert_eq!(answers[1]["content"], "Reply from Ada (the people you work for; follow it):\nAgency owners. About 100 words.");
     let (s, r) = result(&pool, t).await;
     assert_eq!((s.as_str(), r["summary"].as_str()), ("done", Some("Wrote a 100-word announcement for agency owners.")));
     assert_eq!(r["tool_calls"].as_array().unwrap().len(), 1, "the lookup before the question is in the report");

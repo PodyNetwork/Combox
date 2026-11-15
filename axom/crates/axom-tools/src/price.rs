@@ -28,7 +28,12 @@ pub struct HttpPriceFeed {
 
 impl HttpPriceFeed {
     pub fn new(url: impl Into<String>, pointer: impl Into<String>) -> Self {
-        let client = reqwest::Client::builder().timeout(std::time::Duration::from_secs(10)).build().expect("http client");
+        // CoinGecko answers 403 to requests without a User-Agent.
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(10))
+            .user_agent(concat!("combox/", env!("CARGO_PKG_VERSION")))
+            .build()
+            .expect("http client");
         Self { client, url: url.into(), pointer: pointer.into(), api_key: None }
     }
 

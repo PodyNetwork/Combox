@@ -1,6 +1,7 @@
-// Every task, its status and requirements; and adding a new one. Combox routes
-// new tasks to a capable worker, or opens a hiring request.
-import { useMemo, useState } from "react";
+// Every task, its status and requirements; and adding a new one. Combox picks
+// a task up as soon as it starts (now, or at the time set): it routes it to a
+// capable worker, or hires one right away.
+import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import DateTimePicker from "../DateTimePicker.jsx";
 import { ReplyBox } from "./AgentLog.jsx";
 import {
@@ -18,7 +19,12 @@ const COLUMNS = [
 ];
 const FILTERS = { open: ["queued", "assigned", "in_progress", "blocked"], done: ["done"], failed: ["failed"], all: null };
 const PRIO = { 1: "bg-ember text-ink", 2: "bg-amber text-ink", 3: "bg-white/10 text-fog", 4: "bg-white/5 text-mute", 5: "bg-white/5 text-dim" };
-const EMPTY = { objective: "", skills: "", tools: [], priority: 3, deadline: "" };
+const EMPTY = { objective: "", skills: "", tools: [], priority: 3, deadline: "", start: "", who: "auto" };
+const WHO = [
+  { value: "auto", label: "Auto" },
+  { value: "ai_agent", label: "AI agent" },
+  { value: "human_freelancer", label: "Human" },
+];
 // "15:30", or "Nov 15, 15:30" when it isn't today.
 const timeOf = (iso) => {
   const d = new Date(iso);
@@ -34,7 +40,7 @@ export default function Tasks() {
   const { data, error, loading, reload } = useLoad("/tasks", { poll: 15000 });
   const call = useCompanyApi();
   const toast = useToast();
-  const [retrying, setRetrying] = useState(null);
+  const [acting, setActing] = useState(null);
   const [answering, setAnswering] = useState(null);
   const org = useLoad("/org-chart");
   const tools = useLoad("/admin/tools");
@@ -55,17 +61,17 @@ export default function Tasks() {
   const columns = COLUMNS.filter((c) => !FILTERS[filter] || FILTERS[filter].includes(c.key));
   const single = columns.length === 1;
 
-  // Send a failed task back to the queue; a worker picks it up within a minute.
-  const retry = async (t) => {
-    setRetrying(t.id);
+  // Retry a failed task, or start one scheduled for later right away.
+  const act = async (t, action, done) => {
+    setActing(t.id);
     try {
-      await call(`/admin/tasks/${t.id}/retry`, { method: "POST" });
-      toast("Queued again. A worker picks it up within a minute.");
+      await call(`/admin/tasks/${t.id}/${action}`, { method: "POST" });
+      toast(done);
       reload();
     } catch (e) {
       toast(e.message, "error");
     } finally {
-      setRetrying(null);
+      setActing(null);
     }
   };
 
@@ -105,7 +111,7 @@ export default function Tasks() {
                 </header>
                 <div className={`min-h-32 rounded-3xl bg-white/1.5 p-2 ring-1 ring-white/5 ${single ? "grid content-start gap-3 sm:grid-cols-2 xl:grid-cols-3" : "space-y-3"}`}>
                   {items.map((t, i) => (
-                    <TaskCard key={t.id} t={t} i={i} worker={workers[t.assignee]} retrying={retrying === t.id} onRetry={() => retry(t)} onAnswer={() => setAnswering({ task: t, worker: workers[t.assignee] })} onReview={() => setReviewing({ task: t, worker: workers[t.assignee] })} onView={() => setViewing({ task: t, worker: workers[t.assignee] })} />
+                    <TaskCard key={t.id} t={t} i={i} worker={workers[t.assignee]} busy={acting === t.id} onRetry={() => act(t, "retry", "Queued again. A worker picks it up now.")} onStartNow={() => act(t, "start-now", "Started. A worker picks it up now.")} onAnswer={() => setAnswering({ task: t, worker: workers[t.assignee] })} onReview={() => setReviewing({ task: t, worker: workers[t.assignee] })} onView={() => setViewing({ task: t, worker: workers[t.assignee] })} />
                   ))}
                   {items.length === 0 && <p className="px-3 py-6 text-center text-xs text-dim">Empty</p>}
                 </div>
@@ -115,14 +121,38 @@ export default function Tasks() {
         </div>
       )}
       <NewTask open={creating} onClose={() => setCreating(false)} tools={tools} onDone={reload} />
-      <Answer data={answering} onClose={() => setAnswering(null)} onSent={() => { setAnswering(null); toast("Reply sent. The worker carries on within a minute."); reload(); }} />
+      <Answer data={answering} onClose={() => setAnswering(null)} onSent={() => { setAnswering(null); toast("Reply sent. The worker carries on now."); reload(); }} />
       <WorkReport task={viewing?.task} worker={viewing?.worker} onClose={() => setViewing(null)} />
       <Review key={`review-${reviewing?.task.id ?? "none"}`} data={reviewing} onClose={() => setReviewing(null)} onDone={reload} />
     </>
   );
 }
 
-function TaskCard({ t, i, worker, retrying, onRetry, onAnswer, onReview, onView }) {
+// Long text is cut to a few lines with "Show more", so a card stays short.
+// The toggle appears only when the text is actually cut off.
+function Clamp({ text, lines = 3, className = "" }) {
+  const ref = useRef(null);
+  const [open, setOpen] = useState(false);
+  const [cut, setCut] = useState(false);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (el && !open) setCut(el.scrollHeight > el.clientHeight + 1);
+  }, [text, open]);
+  return (
+    <>
+      <p ref={ref} className={className} style={open ? undefined : { display: "-webkit-box", WebkitBoxOrient: "vertical", WebkitLineClamp: lines, overflow: "hidden" }}>
+        {text}
+      </p>
+      {(cut || open) && (
+        <button type="button" className="mt-1 text-[11px] font-medium text-lime hover:underline" aria-expanded={open} onClick={() => setOpen(!open)}>
+          {open ? "Show less" : "Show more"}
+        </button>
+      )}
+    </>
+  );
+}
+
+function TaskCard({ t, i, worker, busy, onRetry, onStartNow, onAnswer, onReview, onView }) {
   const asking = t.status === "blocked" && t.result?.waiting_for === "reply";
   const reviewable = worker?.kind === "human_freelancer" && t.status === "in_progress";
   const hasReport = worker?.kind === "ai_agent" && (t.result?.summary || t.result?.error || t.result?.tool_calls?.length || t.result?.tool_outputs?.length);
@@ -131,6 +161,8 @@ function TaskCard({ t, i, worker, retrying, onRetry, onAnswer, onReview, onView 
   const tools = t.required_capabilities?.tools || [];
   const due = t.deadline && localDate(t.deadline);
   const late = due && !["done", "failed"].includes(t.status) && due < new Date(new Date().toDateString());
+  // A queued task scheduled for later waits for its start time.
+  const waiting = t.status === "queued" && t.start_at && new Date(t.start_at) > new Date();
   return (
     <Panel i={i} className="rounded-2xl! p-4">
       <div className="mb-2 flex items-center gap-2">
@@ -141,9 +173,16 @@ function TaskCard({ t, i, worker, retrying, onRetry, onAnswer, onReview, onView 
             {due.toLocaleDateString(undefined, { month: "short", day: "numeric", year: due.getFullYear() === new Date().getFullYear() ? undefined : "numeric" })}
           </span>
         )}
+        {waiting && (
+          <span className="inline-flex items-center gap-1 font-mono text-[11px] text-sky" title={`Work starts ${new Date(t.start_at).toLocaleString()}`}>
+            <Icon name="clock" size={11} />
+            starts {timeOf(t.start_at)}
+          </span>
+        )}
+        {t.worker_kind && <span className="font-mono text-[11px] text-mute">{t.worker_kind === "ai_agent" ? "AI" : "human"}</span>}
         {Number(t.cost_usd) > 0 && <span className="num ml-auto text-[11px] text-mute">{usd(t.cost_usd)}</span>}
       </div>
-      <p className="text-sm/snug">{t.objective}</p>
+      <Clamp text={t.objective} className="text-sm/snug" />
       {(skills.length > 0 || tools.length > 0) && (
         <div className="mt-3 flex flex-wrap gap-1" aria-label="Needs">
           {skills.map((s) => <Chip key={s}>{human(s)}</Chip>)}
@@ -155,14 +194,14 @@ function TaskCard({ t, i, worker, retrying, onRetry, onAnswer, onReview, onView 
           ))}
         </div>
       )}
-      {t.result?.summary && <p className="mt-3 line-clamp-3 rounded-lg bg-lime/5 px-2.5 py-1.5 text-xs text-mute ring-1 ring-lime/15">{t.result.summary}</p>}
+      {t.result?.summary && <div className="mt-3"><Clamp text={t.result.summary} className="rounded-lg bg-lime/5 px-2.5 py-1.5 text-xs text-mute ring-1 ring-lime/15" /></div>}
       {asking && (
         <div className="mt-3 rounded-lg bg-amber/8 px-2.5 py-2 ring-1 ring-amber/25">
           <p className="mb-1 font-mono text-[10px] uppercase tracking-widest text-amber">Question for you</p>
-          <p className="line-clamp-4 whitespace-pre-wrap text-xs text-fog/85">{t.result.questions}</p>
+          <Clamp text={t.result.questions} lines={4} className="whitespace-pre-wrap text-xs text-fog/85" />
         </div>
       )}
-      {t.result?.error && <p className="mt-3 line-clamp-2 rounded-lg bg-ember/5 px-2.5 py-1.5 text-xs text-ember ring-1 ring-ember/20">{t.result.error}</p>}
+      {t.result?.error && <div className="mt-3"><Clamp text={t.result.error} lines={2} className="rounded-lg bg-ember/5 px-2.5 py-1.5 text-xs text-ember ring-1 ring-ember/20" /></div>}
       {t.status === "failed" && (
         <p className="mt-2 flex items-center gap-1.5 text-[11px] text-mute">
           <Icon name="clock" size={12} className="shrink-0" />
@@ -189,9 +228,14 @@ function TaskCard({ t, i, worker, retrying, onRetry, onAnswer, onReview, onView 
           {reviewable && <Button size="sm" onClick={onReview}>Review</Button>}
           {asking && <Button size="sm" onClick={onAnswer}>Reply</Button>}
           {hasReport && <Button size="sm" variant="ghost" onClick={onView}>Work</Button>}
+          {waiting && (
+            <Button size="sm" onClick={onStartNow} disabled={busy} title="Start this task now instead of at its scheduled time">
+              {busy ? "Starting…" : "Start now"}
+            </Button>
+          )}
           {t.status === "failed" && (
-            <Button size="sm" onClick={onRetry} disabled={retrying} title="Send this task back to the queue">
-              {retrying ? "Retrying…" : "Retry"}
+            <Button size="sm" onClick={onRetry} disabled={busy} title="Send this task back to the queue">
+              {busy ? "Retrying…" : "Retry"}
             </Button>
           )}
         </div>
@@ -210,6 +254,9 @@ function NewTask({ open, onClose, tools, onDone }) {
   const options = tools.data?.available || [];
   const skills = skillList(form.skills);
   const toggleTool = (t) => set("tools")(form.tools.includes(t) ? form.tools.filter((x) => x !== t) : [...form.tools, t]);
+  // Humans never run tools: picking Human clears them, and tools are hidden.
+  const isHuman = form.who === "human_freelancer";
+  const setWho = (who) => setForm((f) => ({ ...f, who, tools: who === "human_freelancer" ? [] : f.tools }));
   const close = () => {
     setError(null);
     onClose();
@@ -227,10 +274,13 @@ function NewTask({ open, onClose, tools, onDone }) {
           priority: Number(form.priority),
           required_skills: skills,
           required_tools: form.tools,
+          worker_kind: form.who,
           deadline: form.deadline || null,
+          // Local date and time from the picker; empty means start now.
+          start_at: form.start ? new Date(form.start).toISOString() : null,
         },
       });
-      notify(`Task added (queue position ${r.queue_position}).`);
+      notify(r.scheduled ? `Task scheduled: work starts ${timeOf(r.start_at)}.` : `Task added (queue position ${r.queue_position}). Work starts now.`);
       setForm(EMPTY);
       onDone();
       onClose();
@@ -247,7 +297,14 @@ function NewTask({ open, onClose, tools, onDone }) {
           <Input label="Skills needed (comma-separated)" value={form.skills} onChange={set("skills")} placeholder="copywriting, visual design" />
           {skills.length > 0 && <div className="mt-2 flex flex-wrap gap-1">{skills.map((s) => <Chip key={s}>{s}</Chip>)}</div>}
         </div>
-        <fieldset>
+        <div>
+          <span className="block text-sm text-mute">Who does it</span>
+          <Segmented value={form.who} onChange={setWho} options={WHO} />
+          <span className="mt-1 block text-xs text-dim">
+            {isHuman ? "A human freelancer gets it as a brief (hired first if you have none)." : form.who === "ai_agent" ? "An AI agent does it (hired first if none can)." : "Combox picks: tools mean an AI agent; a planned human role means a freelancer."}
+          </span>
+        </div>
+        {!isHuman && <fieldset>
           <legend className="text-sm text-mute">Tools needed <span className="text-dim">(an AI worker with these tools does it)</span></legend>
           <div className="mt-2">
             <ErrorNote error={tools.error} />
@@ -273,12 +330,13 @@ function NewTask({ open, onClose, tools, onDone }) {
               </div>
             )}
           </div>
-        </fieldset>
+        </fieldset>}
         <div>
           <span className="block text-sm text-mute">Priority</span>
           <Segmented value={form.priority} onChange={set("priority")} options={[1, 2, 3, 4, 5].map((p) => ({ value: p, label: `P${p}` }))} />
           <span className="mt-1 block text-xs text-dim">P1 is the highest, P5 the lowest.</span>
         </div>
+        <DateTimePicker label="Start" value={form.start} onChange={set("start")} todayIsNow placeholder="Now" hint="Leave empty to start right away, or pick when work should begin." />
         <DateTimePicker label="Deadline" value={form.deadline} onChange={set("deadline")} time={false} placeholder="No deadline" />
         <ErrorNote error={error} />
         <div className="grid grid-cols-2 gap-3 pt-1">

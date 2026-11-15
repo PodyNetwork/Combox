@@ -7,7 +7,7 @@ use axom_tools::rhea::TreasuryViews;
 async fn main() -> anyhow::Result<()> {
     let a: Vec<String> = std::env::args().skip(1).collect();
     let (network, account) = (a.first().map(String::as_str).unwrap_or("mainnet"), a.get(1).map(String::as_str).unwrap_or("wrap.near"));
-    let rpc = JsonRpcNear::new(format!("https://rpc.{network}.near.org"));
+    let rpc = JsonRpcNear::new(format!("https://rpc.{network}.fastnear.com"));
     println!("{:#?}", rpc.position(network, account).await.map_err(|e| anyhow::anyhow!("{e}"))?);
     Ok(())
 }

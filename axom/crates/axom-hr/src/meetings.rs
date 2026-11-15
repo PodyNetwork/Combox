@@ -1,10 +1,15 @@
 //! Meetings and interviews on the self-hosted LiveKit server.
 //!
 //! - `create_meeting` creates the room and one join link per invitee.
-//! - `dispatch_agent` assigns the meeting agent its instructions, questions,
-//!   and a job-related rubric. Rubric criteria that name protected
-//!   characteristics are refused. The agent is sent into the room when an
-//!   invitee joins (`send_agent`), whenever that is before the link expires.
+//! - `dispatch_agent` assigns the meeting agent its instructions, the
+//!   owner's own questions (optional), and a job-related rubric. Rubric
+//!   criteria that name protected characteristics are refused. The agent
+//!   writes its interview questions itself from the role, asking the owner's
+//!   first when there are any.
+//! - Whoever joins (the applicant or the owner from the dashboard), the agent
+//!   is in the room: [`ensure_agent`] sends it on the first join and sends a
+//!   new one whenever it is no longer there (the room closed while empty, or
+//!   the agent left after everyone did).
 //! - The agent reports back through `record_callback` (per-meeting token):
 //!   consent first, then the transcript, summary, and rubric scores. A
 //!   transcript without recorded consent is rejected.
@@ -254,7 +259,8 @@ pub fn default_rubric() -> Vec<Criterion> {
     ]
 }
 
-/// Questions for an interview nobody wrote questions for.
+/// Questions the agent falls back on when it cannot write its own (no AI
+/// key, or the model failed) and the owner gave none.
 pub fn default_questions() -> Vec<String> {
     vec![
         "Tell me about a recent project that's relevant to this role, and what you did on it.".into(),
@@ -263,12 +269,12 @@ pub fn default_questions() -> Vec<String> {
     ]
 }
 
-/// Give a meeting that has no interviewer job yet the default one
-/// (instructions, [`default_questions`], [`default_rubric`]). Called before
-/// any join link is emailed: the agent is only ever sent to a meeting with
-/// questions, so a link for a meeting without them would open an empty room.
-/// Returns whether defaults were stored. [`dispatch_agent`] can still replace
-/// them until the agent is in the room.
+/// Give a meeting that has no interviewer job yet the default one:
+/// instructions from its title, no owner questions (the agent writes its
+/// own), and [`default_rubric`]. Called before any join link is emailed and
+/// on every join, so the agent can always be sent. Returns whether defaults
+/// were stored. [`dispatch_agent`] can still replace them until the agent is
+/// in the room.
 pub async fn ensure_interviewer(pool: &PgPool, cfg: &PolicyConfig, actor: &Actor, meeting_id: Uuid) -> Result<bool, MeetingError> {
     let row: Option<(String, String, bool)> =
         sqlx::query_as("SELECT title, status, questions IS NOT NULL FROM axom.meetings WHERE id = $1").bind(meeting_id).fetch_optional(pool).await?;
@@ -279,7 +285,7 @@ pub async fn ensure_interviewer(pool: &PgPool, cfg: &PolicyConfig, actor: &Actor
     let c = ctx(pool, actor).await?;
     allow(cfg, &c, "dispatch_agent")?;
     let instructions = format!("Structured interview: {title}. Ask only job-related questions.");
-    let (questions, rubric) = (default_questions(), default_rubric());
+    let (questions, rubric): (Vec<String>, _) = (vec![], default_rubric());
     let stored = sqlx::query(
         "UPDATE axom.meetings SET status = 'dispatched', instructions = $2, questions = $3, rubric = $4, callback_token_sha256 = NULL, dispatched_at = NULL \
          WHERE id = $1 AND status = 'scheduled' AND questions IS NULL",
@@ -294,8 +300,8 @@ pub async fn ensure_interviewer(pool: &PgPool, cfg: &PolicyConfig, actor: &Actor
         == 1;
     if stored {
         let ev = AuditEvent::new(actor, "meeting.dispatch_agent", "defaulted")
-            .inputs(json!({ "meeting_id": meeting_id, "questions": questions, "rubric": rubric }))
-            .reasoning("join links were about to go out for a meeting with no interviewer questions")
+            .inputs(json!({ "meeting_id": meeting_id, "questions": questions, "questions_written_by": "ai", "rubric": rubric }))
+            .reasoning("the meeting had no interviewer yet; the agent writes its questions from the role")
             .policy_version(cfg.version());
         audit::append(pool, &ev).await?;
     }
@@ -328,13 +334,13 @@ pub struct Dispatched {
     pub callback_token: Option<String>,
 }
 
-/// Assign the meeting agent: store its instructions, questions, and rubric,
-/// replacing any earlier job (such as the defaults) until the agent is in
-/// the room. The agent itself goes into the room when an invitee joins (see [`join`]),
-/// or right away if one already has. Sending it
-/// earlier fails: LiveKit closes an empty room after ten minutes and takes
-/// the dispatch with it, and a link can be open for a day, so the candidate
-/// would arrive in a fresh room with no interviewer.
+/// Assign the meeting agent: store its instructions, the owner's own
+/// questions (0-20; the agent writes the rest), and rubric, replacing any
+/// earlier job (such as the defaults) until the agent is in the room. The
+/// agent itself goes into the room when someone joins (see [`join`]), or
+/// right away if an invitee already has. Sending it earlier fails: LiveKit
+/// closes an empty room after ten minutes and takes the dispatch with it,
+/// and a link can be open for a day.
 #[allow(clippy::too_many_arguments)]
 pub async fn dispatch_agent(
     pool: &PgPool,
@@ -350,8 +356,10 @@ pub async fn dispatch_agent(
     if instructions.len() > 4000 {
         return Err(MeetingError::Invalid("instructions up to 4000 characters".into()));
     }
-    if questions.is_empty() || questions.len() > 20 || questions.iter().any(|q| q.trim().is_empty() || q.len() > 500) {
-        return Err(MeetingError::Invalid("1-20 questions of 1-500 characters".into()));
+    // The owner's own questions are optional: the agent writes its own.
+    let questions: Vec<String> = questions.iter().map(|q| q.trim().to_string()).filter(|q| !q.is_empty()).collect();
+    if questions.len() > 20 || questions.iter().any(|q| q.len() > 500) {
+        return Err(MeetingError::Invalid("up to 20 questions of up to 500 characters".into()));
     }
     let rubric = rubric.unwrap_or_else(default_rubric);
     validate_rubric(&rubric)?;
@@ -395,7 +403,7 @@ pub async fn dispatch_agent(
     let ev = AuditEvent::new(actor, "meeting.dispatch_agent", if sent.is_some() { "dispatched" } else { "scheduled" })
         .inputs(json!({
             "meeting_id": meeting_id, "room": room, "duration_minutes": duration, "questions": questions, "rubric": rubric,
-            "dispatch_id": sent.as_ref().map(|s| s.dispatch_id.clone()), "agent_joins": "when an invitee joins", "links_expire_at": join_deadline,
+            "dispatch_id": sent.as_ref().map(|s| s.dispatch_id.clone()), "agent_joins": "when someone joins", "links_expire_at": join_deadline,
         }))
         .policy_version(cfg.version());
     audit::append(pool, &ev).await?;
@@ -419,23 +427,33 @@ pub async fn send_agent(
     let room_auth = allow(cfg, &c, "create_meeting")?;
     let auth = allow(cfg, &c, "dispatch_agent")?;
     let token = rand_token("cb");
-    type JobRow = (String, Option<String>, Option<Value>, Option<Value>, DateTime<Utc>, i32);
+    type JobRow = (String, String, Option<String>, Option<Value>, Option<Value>, DateTime<Utc>, i32);
     // Claim the send (and store the callback token's hash before the agent can use it).
     let job: Option<JobRow> = sqlx::query_as(
         "UPDATE axom.meetings SET dispatched_at = now(), callback_token_sha256 = $2 \
          WHERE id = $1 AND status = 'dispatched' AND dispatched_at IS NULL AND questions IS NOT NULL \
            AND scheduled_at + make_interval(mins => $3) >= now() \
-         RETURNING room, instructions, questions, rubric, scheduled_at, duration_minutes",
+         RETURNING room, title, instructions, questions, rubric, scheduled_at, duration_minutes",
     )
     .bind(meeting_id)
     .bind(sha(&token))
     .bind(JOIN_LATE_MINUTES as i32)
     .fetch_optional(pool)
     .await?;
-    let Some((room, instructions, questions, rubric, scheduled_at, duration)) = job else { return Ok(None) };
+    let Some((room, title, instructions, questions, rubric, scheduled_at, duration)) = job else { return Ok(None) };
     let join_deadline = link_expiry(scheduled_at);
+    // The meeting title always goes with the brief: the agent writes its
+    // questions from the role, and the brief may be empty.
+    let instructions = match instructions.as_deref().map(str::trim).unwrap_or_default() {
+        "" => format!("Meeting: {title}"),
+        brief => format!("Meeting: {title}\n{brief}"),
+    };
     let metadata = json!({
-        "meeting_id": meeting_id, "instructions": instructions.unwrap_or_default(), "questions": questions, "rubric": rubric,
+        "meeting_id": meeting_id, "instructions": instructions, "rubric": rubric,
+        // The owner's own questions (may be none) are asked first; the agent
+        // writes the rest from the role, and falls back on the defaults
+        // only if it cannot.
+        "questions": questions, "generate_questions": true, "fallback_questions": default_questions(),
         "disclosure": DISCLOSURE, "callback_url": format!("{}/meetings/{meeting_id}/callback", callback_base_url.trim_end_matches('/')),
         "callback_token": token,
         // The agent ends the interview at this limit, and leaves if nobody joins by the deadline.
@@ -466,6 +484,69 @@ pub async fn send_agent(
             Err(e.into())
         }
     }
+}
+
+/// How long a freshly sent agent has to show up in the room before a join
+/// counts it as missing and sends another (it connects within seconds).
+pub const AGENT_ARRIVAL_SECS: i64 = 30;
+
+/// Make sure the interviewer is in the meeting room. Called on every join,
+/// the owner's host link included:
+/// - a meeting with no interviewer yet gets the default one ([`ensure_interviewer`]);
+/// - an agent never sent is sent now ([`send_agent`]);
+/// - an agent sent earlier that is no longer in the room (LiveKit closed the
+///   room while it sat empty, or the agent left after everyone did) is
+///   replaced: the earlier send is released and a new agent starts the
+///   interview over, asking for consent again.
+///
+/// An agent sent in the last [`AGENT_ARRIVAL_SECS`] counts as on its way, so
+/// a quick reload does not send two. Returns the new dispatch, if one was sent.
+pub async fn ensure_agent(
+    pool: &PgPool,
+    cfg: &PolicyConfig,
+    rooms: &dyn MeetingRooms,
+    actor: &Actor,
+    meeting_id: Uuid,
+    callback_base_url: &str,
+) -> Result<Option<Dispatched>, MeetingError> {
+    ensure_interviewer(pool, cfg, actor, meeting_id).await?;
+    let row: Option<(String, String, Option<DateTime<Utc>>)> =
+        sqlx::query_as("SELECT room, status, dispatched_at FROM axom.meetings WHERE id = $1").bind(meeting_id).fetch_optional(pool).await?;
+    let (room, status, sent_at) = row.ok_or(MeetingError::NotFound(meeting_id))?;
+    if status != "dispatched" {
+        return Ok(None);
+    }
+    let Some(sent_at) = sent_at else {
+        return send_agent(pool, cfg, rooms, actor, meeting_id, callback_base_url).await;
+    };
+    if Utc::now() - sent_at < Duration::seconds(AGENT_ARRIVAL_SECS) {
+        return Ok(None);
+    }
+    let c = ctx(pool, actor).await?;
+    let auth = allow(cfg, &c, "dispatch_agent")?;
+    if rooms.agent_in_room(&auth, &room, AGENT_NAME).await? {
+        return Ok(None);
+    }
+    // Release the earlier send, unless a concurrent join already did.
+    let released = sqlx::query(
+        "UPDATE axom.meetings SET dispatched_at = NULL, callback_token_sha256 = NULL, consent = NULL \
+         WHERE id = $1 AND status = 'dispatched' AND dispatched_at = $2",
+    )
+    .bind(meeting_id)
+    .bind(sent_at)
+    .execute(pool)
+    .await?
+    .rows_affected()
+        == 1;
+    if !released {
+        return Ok(None);
+    }
+    let ev = AuditEvent::new(actor, "meeting.agent_sent", "replacing")
+        .inputs(json!({ "meeting_id": meeting_id, "room": room, "previous_sent_at": sent_at }))
+        .reasoning("someone joined and the interviewer was no longer in the room; a new one starts the interview over")
+        .policy_version(cfg.version());
+    audit::append(pool, &ev).await?;
+    send_agent(pool, cfg, rooms, actor, meeting_id, callback_base_url).await
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -527,9 +608,8 @@ pub async fn admin_join_link(pool: &PgPool, actor: &Actor, meeting_id: Uuid, ema
 }
 
 /// Exchange a join-link token for a short-lived LiveKit participant token.
-/// Inside the join window, this is also when the assigned agent is sent in
-/// (once; see [`send_agent`]). A host joining before the window opens does
-/// not bring the agent.
+/// Every join, the owner's host link included, also makes sure the
+/// interviewer is in the room ([`ensure_agent`]).
 pub async fn join(pool: &PgPool, cfg: &PolicyConfig, rooms: &dyn MeetingRooms, ws_url: &str, callback_base_url: &str, invite_token: &str) -> Result<JoinInfo, MeetingError> {
     type JoinRow = (Uuid, String, DateTime<Utc>, String, String, String, DateTime<Utc>, i32, bool, Option<DateTime<Utc>>);
     let row: Option<JoinRow> = sqlx::query_as(
@@ -576,14 +656,11 @@ pub async fn join(pool: &PgPool, cfg: &PolicyConfig, rooms: &dyn MeetingRooms, w
         }
         expires_at = expires.min(started + duration);
     }
-    // An invitee joining starts the interview: the assigned agent goes in now,
-    // whatever the scheduled time. An admin's host link does not bring it.
-    if !host && status == "dispatched" {
-        // A failure here must not lock the participant out; it is audited and
-        // the next join tries again.
-        if let Err(e) = send_agent(pool, cfg, rooms, &Actor::System, meeting_id, callback_base_url).await {
-            tracing::error!(%meeting_id, error = %e, "sending the meeting agent failed");
-        }
+    // Whoever joins, the interviewer is there: sent now if it never was, and
+    // sent again if it has left. A failure here must not lock the
+    // participant out; it is audited and the next join tries again.
+    if let Err(e) = ensure_agent(pool, cfg, rooms, &Actor::System, meeting_id, callback_base_url).await {
+        tracing::error!(%meeting_id, error = %e, "sending the meeting agent failed");
     }
     Ok(JoinInfo { ws_url: ws_url.into(), room, identity: email, token, title, scheduled_at, duration_minutes, expires_at })
 }
@@ -618,6 +695,16 @@ pub async fn check_agent_token(pool: &PgPool, meeting_id: Uuid, token: &str) -> 
     Ok(())
 }
 
+/// The meeting is over: every join link for it (invitee and host) stops
+/// working now. Returns how many links were cut short.
+async fn expire_links<'e, E: sqlx::PgExecutor<'e>>(ex: E, meeting_id: Uuid) -> Result<u64, sqlx::Error> {
+    let r = sqlx::query("UPDATE axom.meeting_invites SET expires_at = now() WHERE meeting_id = $1 AND expires_at > now()")
+        .bind(meeting_id)
+        .execute(ex)
+        .await?;
+    Ok(r.rows_affected())
+}
+
 pub async fn record_callback(pool: &PgPool, meeting_id: Uuid, token: &str, event: AgentEvent) -> Result<String, MeetingError> {
     type CallbackRow = (Option<String>, String, Option<Value>, Option<Value>);
     let row: Option<CallbackRow> =
@@ -644,7 +731,10 @@ pub async fn record_callback(pool: &PgPool, meeting_id: Uuid, token: &str, event
                 .bind(granted)
                 .execute(pool)
                 .await?;
-            let ev = AuditEvent::new(&actor, "meeting.consent", if granted { "granted" } else { "declined" }).inputs(json!({ "meeting_id": meeting_id, "granted": granted, "at": at }));
+            // Without consent the call is over: its links stop working.
+            let links_expired = if granted { 0 } else { expire_links(pool, meeting_id).await? };
+            let ev = AuditEvent::new(&actor, "meeting.consent", if granted { "granted" } else { "declined" })
+                .inputs(json!({ "meeting_id": meeting_id, "granted": granted, "at": at, "links_expired": links_expired }));
             audit::append(pool, &ev).await?;
             Ok(new_status.into())
         }
@@ -677,7 +767,9 @@ pub async fn record_callback(pool: &PgPool, meeting_id: Uuid, token: &str, event
                 .bind(json!(scores))
                 .execute(pool)
                 .await?;
-            let ev = AuditEvent::new(&actor, "meeting.completed", "completed").inputs(json!({ "meeting_id": meeting_id, "turns": transcript.len(), "scores": scores }));
+            let links_expired = expire_links(pool, meeting_id).await?;
+            let ev = AuditEvent::new(&actor, "meeting.completed", "completed")
+                .inputs(json!({ "meeting_id": meeting_id, "turns": transcript.len(), "scores": scores, "links_expired": links_expired }));
             audit::append(pool, &ev).await?;
             Ok("completed".into())
         }
@@ -804,6 +896,7 @@ pub async fn expire_meetings(pool: &PgPool, cfg: &PolicyConfig, rooms: &dyn Meet
         };
         let reason = if joined { "the interview started but no results arrived before the time limit" } else { "nobody joined before the link expired" };
         let mut tx = pool.begin().await?;
+        expire_links(&mut *tx, id).await?;
         let ev = AuditEvent::new(&Actor::System, "meeting.expire", "expired")
             .inputs(json!({ "meeting_id": id, "room": room, "scheduled_at": scheduled_at, "room_closed": closed.is_ok(), "room_error": closed.err() }))
             .reasoning(reason)

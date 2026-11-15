@@ -40,12 +40,12 @@ pub fn tools() -> Vec<Value> {
         }),
         json!({
             "name": "dispatch_agent",
-            "description": "Send the AI interviewer into a meeting room with instructions and questions.",
-            "inputSchema": { "type": "object", "additionalProperties": false, "required": ["room_id", "instructions", "questions"],
+            "description": "Assign the AI interviewer to a meeting room with instructions about the role. The interviewer writes its own questions from them; `questions` (optional) are asked first. It joins whenever someone joins the room.",
+            "inputSchema": { "type": "object", "additionalProperties": false, "required": ["room_id", "instructions"],
                 "properties": {
                     "room_id": { "type": "string", "minLength": 1, "maxLength": 100 },
                     "instructions": { "type": "string", "maxLength": 4000 },
-                    "questions": { "type": "array", "items": { "type": "string", "minLength": 1, "maxLength": 500 }, "minItems": 1, "maxItems": 20 }
+                    "questions": { "type": "array", "items": { "type": "string", "minLength": 1, "maxLength": 500 }, "minItems": 0, "maxItems": 20 }
                 } }
         }),
         json!({
@@ -215,7 +215,7 @@ async fn call(s: &AppState, name: &str, a: &Value) -> (String, bool) {
             let row: Result<Option<(Uuid,)>, _> = sqlx::query_as("SELECT id FROM axom.meetings WHERE room = $1").bind(str_of("room_id")).fetch_optional(&s.pool).await;
             let Ok(Some((meeting_id,))) = row else { return ("room not found".into(), true) };
             match meetings::dispatch_agent(&s.pool, &svc.policy, svc.rooms.as_ref(), &actor, meeting_id, &str_of("instructions"), &list_of("questions"), None, &svc.public_api_url).await {
-                Ok(d) => ok(json!({ "meeting_id": meeting_id, "dispatch_id": d.dispatch_id, "agent": if d.dispatch_id.is_some() { "sent" } else { "joins when the applicant does" } })),
+                Ok(d) => ok(json!({ "meeting_id": meeting_id, "dispatch_id": d.dispatch_id, "agent": if d.dispatch_id.is_some() { "sent" } else { "joins when someone joins" } })),
                 Err(e) => err(e),
             }
         }
@@ -282,7 +282,9 @@ mod tests {
             assert!(validate("create_meeting", &bad).is_err(), "{bad}");
         }
         assert!(validate("get_summary", &json!({ "meeting_id": "nope" })).is_err());
-        assert!(validate("dispatch_agent", &json!({ "room_id": "r", "instructions": "", "questions": [] })).is_err());
+        assert!(validate("dispatch_agent", &json!({ "room_id": "r", "instructions": "" })).is_ok(), "questions are optional");
+        assert!(validate("dispatch_agent", &json!({ "room_id": "r", "instructions": "", "questions": [""] })).is_err());
+        assert!(validate("dispatch_agent", &json!({ "instructions": "" })).is_err());
         assert!(validate("approve_payout", &json!({})).is_err());
     }
 }

@@ -71,6 +71,9 @@ impl MeetingRooms for NotSetUp {
     async fn dispatch_agent(&self, _: &Authorized, _: &str, _: &str, _: &str) -> ToolResult<String> {
         self.refuse()
     }
+    async fn agent_in_room(&self, _: &Authorized, _: &str, _: &str) -> ToolResult<bool> {
+        self.refuse()
+    }
 }
 
 #[async_trait]

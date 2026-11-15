@@ -1,77 +1,135 @@
 // Join by link: /join?t=<invite token>. The token is exchanged at the Combox
-// API (POST /meetings/join) for a short-lived LiveKit participant token.
-// A lobby states up front that an AI interviewer is present and will ask for
-// consent before anything is recorded. In the room, live captions sit under
-// the participant tiles, Google Meet style.
-import { useEffect, useRef, useState } from "react";
-import { LiveKitRoom } from "@livekit/components-react";
-import { DisconnectReason } from "livekit-client";
-import { ArrowRight, Clock, Cpu, Microphone2, MicrophoneSlash1, MoneyRemove, Record, ShieldTick, Video, VideoSlash } from "iconsax-react";
-import LiveRoom from "./LiveRoom.jsx";
+// API (POST /meetings/join) for a short-lived LiveKit participant token; that
+// call also sends the AI interviewer, which gets ready while the person is in
+// the lobby. A lobby states up front that an AI interviewer is present and
+// will ask for consent before anything is recorded.
+//
+// Speed: the lobby shows at once (the invite is checked behind it), the
+// camera and mic open in the lobby with a preview, and the room's code
+// (LiveKit) loads in the background, so "Join" connects straight away.
+import { Suspense, lazy, useEffect, useRef, useState } from "react";
+import { ArrowRight, Clock, Cpu, Microphone2, MicrophoneSlash1, MoneyRemove, ShieldTick, Video, VideoSlash } from "iconsax-react";
 import { API, Breakthrough, Kinetic, Notice, Wordmark } from "./ui.jsx";
+
+const loadRoom = () => import("./LiveRoom.jsx");
+const Room = lazy(loadRoom);
+// Room tokens last 15 minutes; refresh before entering if this one is old.
+const STALE_MS = 10 * 60 * 1000;
+// A small camera picture: an interview needs a face, not HD, and the voice
+// needs the bandwidth on a weak network.
+const VIDEO = { width: { ideal: 640 }, height: { ideal: 360 }, frameRate: { ideal: 24 } };
+const AUDIO = { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 };
+
+const ask = (kinds) =>
+  navigator.mediaDevices.getUserMedia({ video: kinds.includes("video") && VIDEO, audio: kinds.includes("audio") && AUDIO }).then((s) => s.getTracks());
+// One permission prompt for both; if that fails (say, there is no camera),
+// open each on its own so the other still works.
+const openMedia = (kinds) =>
+  ask(kinds).catch(async (e) => {
+    if (kinds.length < 2) throw e;
+    const got = (await Promise.allSettled(kinds.map((k) => ask([k])))).flatMap((r) => (r.status === "fulfilled" ? r.value : []));
+    if (!got.length) throw e;
+    return got;
+  });
+
+// The camera and mic, opened in the lobby while `active`. Turning one off
+// releases it. The room publishes the open tracks when it connects.
+function useLocalMedia(video, audio, active, onBlocked) {
+  const tracks = useRef({ video: null, audio: null });
+  const [preview, setPreview] = useState(null);
+  useEffect(() => {
+    if (!active) return;
+    const want = { video, audio };
+    for (const kind of ["video", "audio"]) {
+      if (!want[kind] && tracks.current[kind]) {
+        tracks.current[kind].stop();
+        tracks.current[kind] = null;
+      }
+    }
+    const live = (k) => tracks.current[k]?.readyState === "live";
+    setPreview(live("video") ? tracks.current.video : null);
+    const need = ["video", "audio"].filter((k) => want[k] && !live(k));
+    if (!need.length) return;
+    if (!navigator.mediaDevices?.getUserMedia) return onBlocked(need);
+    let stale = false;
+    openMedia(need)
+      .then((got) => {
+        if (stale) return got.forEach((t) => t.stop());
+        for (const t of got) tracks.current[t.kind] = t;
+        setPreview(live("video") ? tracks.current.video : null);
+        const missing = need.filter((k) => !live(k));
+        if (missing.length) onBlocked(missing);
+      })
+      .catch(() => !stale && onBlocked(need));
+    return () => {
+      stale = true;
+    };
+  }, [video, audio, active]); // eslint-disable-line react-hooks/exhaustive-deps
+  return { tracks: tracks.current, preview };
+}
 
 export default function Join() {
   const invite = new URLSearchParams(window.location.search).get("t");
   const [join, setJoin] = useState(null);
   const [error, setError] = useState(invite ? null : "This link is missing its invite token. Open the exact link from your invitation email.");
   const [entered, setEntered] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [left, setLeft] = useState(false);
+  // The interviewer ended the call (it closes the room): the link no longer works.
+  const [ended, setEnded] = useState(false);
+  const [connError, setConnError] = useState(null);
   const [video, setVideo] = useState(true);
   const [audio, setAudio] = useState(true);
-  const [connError, setConnError] = useState(null);
-  const [deviceIssue, setDeviceIssue] = useState(null);
-  const connected = useRef(false);
-  const [attempt, setAttempt] = useState(0);
+  const [deviceNote, setDeviceNote] = useState(null);
   const fetchedAt = useRef(0);
-  // Room tokens last 15 minutes; refresh before entering if this one is old.
-  const STALE_MS = 10 * 60 * 1000;
+  const media = useLocalMedia(video, audio, !entered, (kinds) => {
+    if (kinds.includes("video")) setVideo(false);
+    if (kinds.includes("audio")) setAudio(false);
+    const what = kinds.length > 1 ? "camera or microphone" : kinds[0] === "video" ? "camera" : "microphone";
+    setDeviceNote(`We couldn't turn on your ${what}. Allow access in your browser's site settings, then turn it on again. You can still join and hear the interviewer.`);
+  });
 
-  // Exchange the invite for a short-lived room token. Runs again on
-  // "Rejoin" / "Try again", since the previous room token may have expired.
-  useEffect(() => {
-    if (!invite) return;
-    let live = true;
-    setJoin(null);
-    fetch(`${API}/meetings/join`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ token: invite }),
-    })
-      .then(async (r) => {
-        const body = await r.json().catch(() => ({}));
-        if (!r.ok) throw new Error(body.error || `Could not join (HTTP ${r.status})`);
-        if (!live) return;
-        fetchedAt.current = Date.now();
-        setJoin(body);
-      })
-      .catch((e) => live && setError(e instanceof TypeError ? "We couldn't reach the Combox server. Check your connection and try the link again." : e.message));
-    return () => {
-      live = false;
-    };
-  }, [invite, attempt]);
-
-  // Enter the room, fetching a fresh token first if the lobby sat open too long.
-  const enter = () => {
-    if (Date.now() - fetchedAt.current > STALE_MS) {
-      setAutoEnter(true);
-      setAttempt((n) => n + 1);
-    } else setEntered(true);
+  // Exchange the invite for a room token (again on "Try again", and when the
+  // lobby sat open long enough for the token to go stale).
+  const load = async () => {
+    const r = await fetch(`${API}/meetings/join`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token: invite }) });
+    const body = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(body.error || `Could not join (HTTP ${r.status})`);
+    fetchedAt.current = Date.now();
+    setJoin(body);
+    // Warm up the room connection while the person reads the lobby.
+    loadRoom().then((m) => m.prepare(body.ws_url, body.token)).catch(() => {});
   };
-  const [autoEnter, setAutoEnter] = useState(false);
+  // In the room with no interviewer: the same call makes Combox send one.
+  const resendAgent = useRef(() =>
+    fetch(`${API}/meetings/join`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token: invite }) }).catch(() => {}),
+  ).current;
+  const fail = (e) => setError(e instanceof TypeError ? "We couldn't reach the Combox server. Check your connection and try the link again." : e.message);
+
   useEffect(() => {
-    if (autoEnter && join) {
-      setAutoEnter(false);
-      setEntered(true);
+    if (invite) load().catch(fail);
+    loadRoom().catch(() => {});
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const enter = async () => {
+    if (Date.now() - fetchedAt.current > STALE_MS) {
+      setRefreshing(true);
+      try {
+        await load();
+      } catch (e) {
+        return fail(e);
+      } finally {
+        setRefreshing(false);
+      }
     }
-  }, [autoEnter, join]);
+    setEntered(true);
+  };
 
   const restart = () => {
-    connected.current = false;
-    setLeft(false);
     setConnError(null);
-    setDeviceIssue(null);
     setEntered(false);
-    setAttempt((n) => n + 1);
+    setJoin(null);
+    load().catch(fail);
   };
 
   if (error) return <Notice tone="error" title="Can't join this meeting" text={error} />;
@@ -81,78 +139,42 @@ export default function Join() {
         <button className="btn btn-lime" style={{ marginTop: 28 }} onClick={restart}>Try again</button>
       </Notice>
     );
-  if (left)
+  if (ended) return <Notice title="The interview has ended" text="Thanks for your time. The hiring team will follow up with you. You can close this tab; this link no longer works." />;
+  // Leaving ends the interview (the interviewer closes it), so there is no rejoin.
+  if (left) return <Notice title="You left the interview" text="Thanks for your time. Leaving ended the interview, so this link no longer works. You can close this tab." />;
+  if (!entered)
     return (
-      <Notice title="You left the meeting" text="Thanks for your time. You can close this tab, or rejoin with the same link while the meeting is open.">
-        <button className="btn btn-ghost" style={{ marginTop: 28 }} onClick={restart}>Rejoin</button>
-      </Notice>
+      <Lobby
+        join={join}
+        busy={!join || refreshing}
+        preview={media.preview}
+        note={deviceNote}
+        video={video}
+        audio={audio}
+        setVideo={(on) => (setDeviceNote(null), setVideo(on))}
+        setAudio={(on) => (setDeviceNote(null), setAudio(on))}
+        onEnter={enter}
+      />
     );
-  if (!join) return <Notice title="Getting your room ready…" text="Checking your invitation." />;
-  if (!entered) return <Lobby title={join.title} minutes={join.duration_minutes || 10} expiresAt={join.expires_at} video={video} audio={audio} setVideo={setVideo} setAudio={setAudio} onEnter={enter} />;
 
   return (
-    <div className="room" data-lk-theme="default">
-      <header className="room-bar">
-        <Wordmark />
-        <strong>{join.title}</strong>
-        <span className="live"><Record size={14} variant="Bold" color="currentColor" /> LIVE</span>
-        <RoomTimer minutes={join.duration_minutes || 10} />
-        <span className="ai-note"><Cpu size={15} variant="Bulk" color="currentColor" /> AI interviewer present · asks consent before recording</span>
-      </header>
-      {deviceIssue && (
-        <p className="device-issue" role="alert">
-          {deviceIssue}
-          <button onClick={() => setDeviceIssue(null)} aria-label="Dismiss">✕</button>
-        </p>
-      )}
-      <div className="room-stage">
-          <LiveKitRoom
-            serverUrl={join.ws_url}
-            token={join.token}
-            connect
-            video={video}
-            audio={audio}
-            onConnected={() => (connected.current = true)}
-            onDisconnected={(reason) => {
-              if (reason === DisconnectReason.CLIENT_INITIATED) return setLeft(true);
-              if (!connected.current) return setConnError("The interview room didn't answer. It may not have started yet, or your network is blocking it.");
-              if (reason === DisconnectReason.DUPLICATE_IDENTITY) return setConnError("You joined this interview from another tab or device, so this one was disconnected.");
-              if (reason === DisconnectReason.ROOM_DELETED) return setLeft(true);
-              setConnError("You were disconnected from the interview. Check your connection, then rejoin.");
-            }}
-            onError={(e) => setConnError(e?.message ? `The room connection failed: ${e.message}` : "The room connection failed.")}
-            onMediaDeviceFailure={() =>
-              setDeviceIssue("Your camera or microphone is blocked. Allow access in your browser's site settings, then turn it back on below.")
-            }
-          >
-            <LiveRoom onDeviceIssue={setDeviceIssue} />
-          </LiveKitRoom>
-      </div>
-    </div>
+    <Suspense fallback={<Notice title="Joining…" text="Connecting you to the interview room." />}>
+      <Room join={join} video={video} audio={audio} tracks={media.tracks} onLeft={() => setLeft(true)} onEnded={() => setEnded(true)} onFailed={setConnError} onNoAgent={resendAgent} />
+    </Suspense>
   );
 }
 
-// Time left in the interview. The interviewer ends it at the limit; this
-// counts down from when the candidate entered the room.
-function RoomTimer({ minutes }) {
-  const [start] = useState(() => Date.now());
-  const [now, setNow] = useState(start);
+function Preview({ track }) {
+  const ref = useRef(null);
   useEffect(() => {
-    const t = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(t);
-  }, []);
-  const left = Math.max(0, minutes * 60 - Math.floor((now - start) / 1000));
-  const mm = String(Math.floor(left / 60)).padStart(2, "0");
-  const ss = String(left % 60).padStart(2, "0");
-  return (
-    <span className={`timer${left <= 60 ? " timer-low" : ""}`} role="timer" aria-label={`${Math.ceil(left / 60)} minutes left`}>
-      <Clock size={14} variant="Bold" color="currentColor" /> {mm}:{ss} left
-    </span>
-  );
+    if (ref.current) ref.current.srcObject = track ? new MediaStream([track]) : null;
+  }, [track]);
+  return <div className="preview">{track ? <video ref={ref} autoPlay muted playsInline /> : <p className="muted">Camera off</p>}</div>;
 }
 
-function Lobby({ title, minutes, expiresAt, video, audio, setVideo, setAudio, onEnter }) {
-  const expires = expiresAt ? new Date(expiresAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : null;
+function Lobby({ join, busy, preview, note, video, audio, setVideo, setAudio, onEnter }) {
+  const minutes = join?.duration_minutes || 10;
+  const expires = join?.expires_at ? new Date(join.expires_at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : null;
   return (
     <div className="lobby">
       <section className="lobby-art">
@@ -167,7 +189,7 @@ function Lobby({ title, minutes, expiresAt, video, audio, setVideo, setAudio, on
       <section className="lobby-form">
         <div className="inner">
           <p className="eyebrow">You're invited</p>
-          <h2><Kinetic text={title} delay={10} /></h2>
+          <h2>{join ? <Kinetic text={join.title} delay={10} /> : <span className="muted">Checking your invitation…</span>}</h2>
           <div className="disclosure">
             <ul>
               <li>
@@ -188,6 +210,8 @@ function Lobby({ title, minutes, expiresAt, video, audio, setVideo, setAudio, on
               </li>
             </ul>
           </div>
+          <Preview track={preview} />
+          {note && <p className="lobby-note" role="alert">{note}</p>}
           <div className="toggles" role="group" aria-label="Devices">
             <button type="button" className="toggle" aria-pressed={video} onClick={() => setVideo(!video)}>
               {video ? <Video size={18} variant="Bold" color="currentColor" /> : <VideoSlash size={18} variant="Linear" color="currentColor" />}
@@ -198,8 +222,9 @@ function Lobby({ title, minutes, expiresAt, video, audio, setVideo, setAudio, on
               {audio ? "Mic on" : "Mic off"}
             </button>
           </div>
-          <button className="btn btn-lime btn-lg btn-block" onClick={onEnter}>Join the interview <ArrowRight size={18} color="currentColor" /></button>
-          <p className="muted" style={{ marginTop: 14, fontSize: 12, textAlign: "center" }}>Your browser will ask for camera and microphone access.</p>
+          <button className="btn btn-lime btn-lg btn-block" onClick={onEnter} disabled={busy}>
+            {busy ? "Getting your room ready…" : <>Join the interview <ArrowRight size={18} color="currentColor" /></>}
+          </button>
         </div>
       </section>
     </div>

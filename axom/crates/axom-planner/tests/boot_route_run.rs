@@ -70,6 +70,7 @@ fn task(objective: &str, tools: &[&str], skills: &[&str]) -> Task {
         status: TaskStatus::Queued,
         result: None,
         cost_usd: Decimal::ZERO,
+        start_at: None, worker_kind: None,
     }
 }
 

@@ -13,7 +13,7 @@ use jsonwebtoken::{encode, EncodingKey, Header};
 use reqwest::Method;
 use serde_json::{json, Value};
 
-use super::http::{live_from_env, need, Auth, HttpAdapter};
+use super::http::{need, Auth, HttpAdapter};
 use crate::{Authorized, MeetingRooms, RoomInfo, ToolError, ToolResult};
 
 pub struct LiveKit {
@@ -47,11 +47,17 @@ impl LiveKit {
     /// `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET`, and optionally
     /// `LIVEKIT_API_URL` when Combox reaches the server at another address
     /// (inside Docker, `http://livekit:7880`).
+    ///
+    /// Always live, whatever `AXOM_LIVE` says (DECISIONS M6-16): this is
+    /// Combox's own server, and the participant tokens it hands out are real
+    /// either way, so a dry run only left people in real rooms the
+    /// interviewer was never sent to. Emails, contracts, and payouts stay
+    /// behind `AXOM_LIVE`.
     pub fn from_env() -> anyhow::Result<Self> {
         let c = crate::config::EnvSource;
-        let mut lk = Self::new(&need(&c, "LIVEKIT_URL")?, &need(&c, "LIVEKIT_API_KEY")?, &need(&c, "LIVEKIT_API_SECRET")?, live_from_env());
+        let mut lk = Self::new(&need(&c, "LIVEKIT_URL")?, &need(&c, "LIVEKIT_API_KEY")?, &need(&c, "LIVEKIT_API_SECRET")?, true);
         if let Some(api) = crate::config::ConfigSource::get(&c, "LIVEKIT_API_URL") {
-            lk.http = HttpAdapter::new("livekit", api, Auth::Bearer(String::new()), live_from_env(), ACTIONS).with_bearer(lk.api_secret.clone());
+            lk.http = HttpAdapter::new("livekit", api, Auth::Bearer(String::new()), true, ACTIONS).with_bearer(lk.api_secret.clone());
         }
         Ok(lk)
     }
@@ -105,10 +111,39 @@ impl MeetingRooms for LiveKit {
         Ok(r.get("id").and_then(Value::as_str).unwrap_or("dispatched").to_string())
     }
 
+    /// Lists the room's participants (`RoomService/ListParticipants`) and
+    /// looks for a connected agent with this name. A room LiveKit no longer
+    /// has (closed when it sat empty) has no agent in it.
+    async fn agent_in_room(&self, auth: &Authorized, room: &str, agent_name: &str) -> ToolResult<bool> {
+        self.http.check(auth)?;
+        // Dry run: report the agent as present, so nothing is sent twice.
+        let dry = json!({ "participants": [{ "identity": "agent-dry-run", "kind": "AGENT", "state": "ACTIVE", "attributes": { "lk.agent.name": agent_name } }] });
+        match self.twirp("RoomService", "ListParticipants", Some(room), json!({ "room": room }), dry).await {
+            Ok(r) => Ok(has_agent(&r, agent_name)),
+            Err(ToolError::Permanent(e)) if e.contains("HTTP 404") => Ok(false),
+            Err(e) => Err(e),
+        }
+    }
+
     async fn end_room(&self, auth: &Authorized, room: &str) -> ToolResult<()> {
         self.http.check(auth)?;
         self.twirp("RoomService", "DeleteRoom", Some(room), json!({ "room": room }), json!({})).await.map(|_| ())
     }
+}
+
+/// Whether a `ListParticipants` response holds a connected agent with this
+/// name. LiveKit marks agents with `kind: "AGENT"` and the
+/// `lk.agent.name` attribute; one that is leaving (`DISCONNECTED`) does not count.
+fn has_agent(list: &Value, agent_name: &str) -> bool {
+    list.get("participants").and_then(Value::as_array).is_some_and(|ps| {
+        ps.iter().any(|p| {
+            let agent = p.get("kind").and_then(Value::as_str) == Some("AGENT") || p.pointer("/permission/agent").and_then(Value::as_bool) == Some(true);
+            let attrs = p.get("attributes");
+            let name = attrs.and_then(|a| a.get("lk.agent.name").or_else(|| a.get("lk.agent_name"))).and_then(Value::as_str);
+            let leaving = p.get("state").and_then(Value::as_str) == Some("DISCONNECTED");
+            agent && !leaving && name.is_none_or(|n| n == agent_name)
+        })
+    })
 }
 
 #[cfg(test)]
@@ -116,6 +151,20 @@ mod tests {
     use super::*;
     use axom_core::decision::{Decision, Outcome};
     use jsonwebtoken::{decode, DecodingKey, Validation};
+
+    #[test]
+    fn finds_the_agent_in_a_participant_list() {
+        // The shape LiveKit v1.13 returns (trimmed), checked against the local server.
+        let list = json!({ "participants": [
+            { "identity": "cand@example.com", "kind": "STANDARD", "state": "ACTIVE", "attributes": {} },
+            { "identity": "agent-AJ_1", "kind": "AGENT", "state": "ACTIVE", "permission": { "agent": true }, "attributes": { "lk.agent.name": "axom-interviewer" } },
+        ] });
+        assert!(has_agent(&list, "axom-interviewer"));
+        assert!(!has_agent(&list, "another-agent"));
+        assert!(!has_agent(&json!({ "participants": [{ "identity": "cand@example.com", "kind": "STANDARD" }] }), "axom-interviewer"));
+        assert!(!has_agent(&json!({ "participants": [{ "identity": "agent-AJ_1", "kind": "AGENT", "state": "DISCONNECTED", "attributes": { "lk.agent.name": "axom-interviewer" } }] }), "axom-interviewer"));
+        assert!(!has_agent(&json!({}), "axom-interviewer"), "an empty room");
+    }
 
     #[tokio::test]
     async fn participant_token_is_short_lived_and_scoped() {

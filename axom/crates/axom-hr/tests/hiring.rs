@@ -46,7 +46,7 @@ async fn setup(pool: &PgPool) -> (PolicyConfig, Uuid, Uuid) {
         .bind(Uuid::new_v4()).bind(team).execute(pool).await.unwrap();
     let task = Task {
         id: Uuid::new_v4(), objective: "Design the logo".into(), required_capabilities: Capabilities::new(Vec::<String>::new(), ["visual_design"]),
-        priority: 2, deadline: None, assignee: None, status: TaskStatus::Queued, result: None, cost_usd: Decimal::ZERO,
+        priority: 2, deadline: None, assignee: None, status: TaskStatus::Queued, result: None, cost_usd: Decimal::ZERO, start_at: None, worker_kind: None,
     };
     db::insert_task(pool, &task, &Default::default()).await.unwrap();
     let report = routing::route_queued(pool, &Actor::System).await.unwrap();
@@ -151,7 +151,7 @@ async fn freelancer_hire_interview_rubric_contract_and_routing(pool: PgPool) {
     // Routing: the design brief goes to the new freelancer; a tool task never does.
     let tool_task = Task {
         id: Uuid::new_v4(), objective: "Post the logo to social".into(), required_capabilities: Capabilities::new(["postiz"], ["visual_design"]),
-        priority: 3, deadline: None, assignee: None, status: TaskStatus::Queued, result: None, cost_usd: Decimal::ZERO,
+        priority: 3, deadline: None, assignee: None, status: TaskStatus::Queued, result: None, cost_usd: Decimal::ZERO, start_at: None, worker_kind: None,
     };
     db::insert_task(&pool, &tool_task, &axom_core::db::TaskPlacement { seq: 9, ..Default::default() }).await.unwrap();
     let routed = routing::route_queued(&pool, &Actor::System).await.unwrap();
@@ -189,7 +189,7 @@ async fn ai_hiring_is_autonomous_logged_and_in_daily_digest(pool: PgPool) {
     let (p, _, _) = setup(&pool).await;
     let task = Task {
         id: Uuid::new_v4(), objective: "Write launch posts".into(), required_capabilities: Capabilities::new(["postiz"], ["copywriting"]),
-        priority: 2, deadline: None, assignee: None, status: TaskStatus::Queued, result: None, cost_usd: Decimal::ZERO,
+        priority: 2, deadline: None, assignee: None, status: TaskStatus::Queued, result: None, cost_usd: Decimal::ZERO, start_at: None, worker_kind: None,
     };
     db::insert_task(&pool, &task, &axom_core::db::TaskPlacement { seq: 5, ..Default::default() }).await.unwrap();
     routing::route_queued(&pool, &Actor::System).await.unwrap();
@@ -252,7 +252,8 @@ async fn hiring_pipeline_advances_on_its_own(pool: PgPool) {
     let log = hiring::advance_hiring(&pool, &p, &svc, Utc::now()).await.unwrap();
     assert!(log.iter().any(|l| l.contains("hired as worker")), "{log:?}");
     let welcome = tools.calls_to("upwork").into_iter().rfind(|c| c.method == "message_candidate").unwrap();
-    assert!(welcome.args["text"].as_str().unwrap().contains("Bearer wk_"));
+    let text = welcome.args["text"].as_str().unwrap();
+    assert!(text.contains("/briefs") && text.contains("token (keep it private): wk_"), "{text}");
     let (tokens,): (i64,) = sqlx::query_as("SELECT count(*) FROM axom.worker_tokens").fetch_one(&pool).await.unwrap();
     assert_eq!(tokens, 1);
 
@@ -473,7 +474,7 @@ async fn jobs_board_hires_without_upwork(pool: PgPool) {
     let log = hiring::advance_hiring(&pool, &p, &svc, Utc::now()).await.unwrap();
     assert!(log.iter().any(|l| l.contains("hired as worker")), "{log:?}");
     let welcome = tools.calls_to("smtp").into_iter().rfind(|c| c.args["email"]["to"][0] == "dana@example.com").unwrap();
-    assert!(welcome.args["email"]["body"].as_str().unwrap().contains("Bearer wk_"));
+    assert!(welcome.args["email"]["body"].as_str().unwrap().contains("/briefs. Sign in there with this access token"));
 
     // Board hires are not blocked as Upwork hires: only the address and tax gates remain.
     let (worker,): (Uuid,) = sqlx::query_as("SELECT worker_id FROM axom.candidates WHERE status = 'hired'").fetch_one(&pool).await.unwrap();

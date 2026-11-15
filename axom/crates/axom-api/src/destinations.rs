@@ -44,7 +44,7 @@ fn dest_error(e: DestinationErr) -> Response {
 
 fn rpc() -> JsonRpcNear {
     match network().as_str() {
-        "mainnet" => JsonRpcNear::new(std::env::var("NEAR_RPC_URL").unwrap_or_else(|_| "https://rpc.mainnet.near.org".into())),
+        "mainnet" => JsonRpcNear::new(std::env::var("NEAR_RPC_URL").unwrap_or_else(|_| "https://rpc.mainnet.fastnear.com".into())),
         _ => JsonRpcNear::new(testnet_rpc_url()),
     }
 }

@@ -73,6 +73,43 @@ async fn needs_based_submission_returns_queue_position(pool: PgPool) {
     // Validation.
     assert_eq!(call(&app, "POST", "/intake/tasks", Some(INTERNAL), json!({ "objective": "", "priority": 3 })).await.0, StatusCode::BAD_REQUEST);
     assert_eq!(call(&app, "POST", "/intake/tasks", Some(INTERNAL), json!({ "objective": "x", "priority": 9 })).await.0, StatusCode::BAD_REQUEST);
+    let too_far = (chrono::Utc::now() + chrono::Duration::days(400)).to_rfc3339();
+    assert_eq!(call(&app, "POST", "/intake/tasks", Some(INTERNAL), json!({ "objective": "x", "start_at": too_far })).await.0, StatusCode::BAD_REQUEST);
+}
+
+#[sqlx::test(migrator = "axom_core::MIGRATOR")]
+async fn tasks_start_now_or_at_their_scheduled_time(pool: PgPool) {
+    let (app, _) = app(&pool).await;
+    let w = Worker {
+        id: Uuid::new_v4(), name: "Writer".into(), kind: WorkerKind::AiAgent, role: "writer".into(), status: WorkerStatus::Active,
+        skills: ["copywriting".to_string()].into(), tool_allowlist: Default::default(), pay_rate_usd: dec!(1), pay_unit: PayUnit::Task, wallet_address: None, kpis: vec![],
+    };
+    db::insert_worker(&pool, None, None, &w).await.unwrap();
+    // Queuing a task wakes the company's loop (NOTIFY axom_tasks).
+    let mut listener = sqlx::postgres::PgListener::connect_with(&pool).await.unwrap();
+    listener.listen("axom_tasks").await.unwrap();
+    // No start time (or one in the past): it starts now.
+    let past = (chrono::Utc::now() - chrono::Duration::hours(1)).to_rfc3339();
+    let (s1, now_task) = call(&app, "POST", "/intake/tasks", Some(INTERNAL), json!({ "objective": "Write a tagline", "required_skills": ["copywriting"], "start_at": past })).await;
+    assert_eq!(s1, StatusCode::CREATED);
+    assert_eq!(now_task["scheduled"], false);
+    let n = tokio::time::timeout(std::time::Duration::from_secs(5), listener.recv()).await.expect("woken").unwrap();
+    assert_eq!(n.payload(), now_task["task_id"].as_str().unwrap());
+    // Scheduled for later: it waits.
+    let later = chrono::Utc::now() + chrono::Duration::hours(2);
+    let (_, sched) = call(&app, "POST", "/intake/tasks", Some(INTERNAL), json!({ "objective": "Write the launch post", "required_skills": ["copywriting"], "start_at": later.to_rfc3339() })).await;
+    assert_eq!(sched["scheduled"], true);
+    let sched_id: Uuid = sched["task_id"].as_str().unwrap().parse().unwrap();
+    assert_eq!(db::next_task_start(&pool).await.unwrap().map(|t| t.timestamp()), Some(later.timestamp()));
+
+    let r = axom_hr::routing::route_queued(&pool, &axom_core::domain::Actor::System).await.unwrap();
+    assert_eq!(r.assigned.len(), 1, "only the task that is due is routed");
+    assert_eq!(db::load_task(&pool, sched_id).await.unwrap().unwrap().status, TaskStatus::Queued);
+    // Its time comes: it is routed on the next pass.
+    sqlx::query("UPDATE axom.tasks SET start_at = now() - interval '1 second' WHERE id = $1").bind(sched_id).execute(&pool).await.unwrap();
+    let r = axom_hr::routing::route_queued(&pool, &axom_core::domain::Actor::System).await.unwrap();
+    assert_eq!(r.assigned, vec![(sched_id, w.id)]);
+    assert_eq!(db::next_task_start(&pool).await.unwrap(), None);
 }
 
 #[sqlx::test(migrator = "axom_core::MIGRATOR")]

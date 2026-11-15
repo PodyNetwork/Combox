@@ -140,6 +140,9 @@ services:
       # re-check payouts against different numbers.
       PAYOUT_APPROVAL_THRESHOLD_USD:
       MONTHLY_PAYOUT_CAP_USD:
+      # Platform default for treasury yield (each company can turn it on or
+      # off in Settings); the API reads the same value from .env.
+      TREASURY_YIELD_ENABLED:
       AXOM_OWNER_EMAIL:
       AXOM_DASHBOARD_URL:
       RUST_LOG:
@@ -162,6 +165,7 @@ services:
       CARTESIA_API_KEY:
       ANTHROPIC_API_KEY:
       AXOM_MEET_LLM_MODEL:
+      AXOM_MEET_STT_LANGUAGE:
     extra_hosts: ["host.docker.internal:host-gateway"]
     depends_on: { livekit: { condition: service_started } }
     restart: unless-stopped

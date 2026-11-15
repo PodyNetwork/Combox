@@ -3,6 +3,7 @@
 use std::collections::HashMap;
 use std::str::FromStr;
 
+use chrono::{DateTime, Utc};
 use rust_decimal::Decimal;
 use serde_json::json;
 use sqlx::postgres::PgRow;
@@ -212,8 +213,8 @@ pub async fn insert_task<'e, E: PgExecutor<'e>>(
     sqlx::query(
         "INSERT INTO axom.tasks
            (id, plan_id, department_id, seq, objective, required_tools, required_skills,
-            priority, deadline, assignee, status, result, cost_usd)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)",
+            priority, deadline, assignee, status, result, cost_usd, start_at, worker_kind)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13, COALESCE($14, now()), $15)",
     )
     .bind(t.id)
     .bind(placement.plan_id)
@@ -228,13 +229,15 @@ pub async fn insert_task<'e, E: PgExecutor<'e>>(
     .bind(t.status.as_str())
     .bind(&t.result)
     .bind(t.cost_usd)
+    .bind(t.start_at)
+    .bind(t.worker_kind.map(|k| k.as_str()))
     .execute(ex)
     .await?;
     Ok(())
 }
 
 const TASK_COLS: &str =
-    "id, objective, required_tools, required_skills, priority, deadline, assignee, status, result, cost_usd";
+    "id, objective, required_tools, required_skills, priority, deadline, assignee, status, result, cost_usd, start_at, worker_kind";
 
 fn task_from_row(r: &PgRow) -> Result<Task, sqlx::Error> {
     let tools: Vec<String> = r.try_get("required_tools")?;
@@ -249,6 +252,8 @@ fn task_from_row(r: &PgRow) -> Result<Task, sqlx::Error> {
         status: parse_db(r.try_get::<&str, _>("status")?)?,
         result: r.try_get("result")?,
         cost_usd: r.try_get("cost_usd")?,
+        start_at: Some(r.try_get("start_at")?),
+        worker_kind: r.try_get::<Option<&str>, _>("worker_kind")?.map(parse_db).transpose()?,
     })
 }
 
@@ -263,6 +268,19 @@ pub async fn tasks_with_status<'e, E: PgExecutor<'e>>(ex: E, status: TaskStatus)
         "SELECT {TASK_COLS} FROM axom.tasks WHERE status = $1 ORDER BY priority, seq, created_at, id"
     );
     sqlx::query(&sql).bind(status.as_str()).fetch_all(ex).await?.iter().map(task_from_row).collect()
+}
+
+/// Queued tasks whose start time has come, in routing order.
+pub async fn due_queued_tasks<'e, E: PgExecutor<'e>>(ex: E) -> Result<Vec<Task>, sqlx::Error> {
+    let sql = format!(
+        "SELECT {TASK_COLS} FROM axom.tasks WHERE status = 'queued' AND start_at <= now() ORDER BY priority, seq, created_at, id"
+    );
+    sqlx::query(&sql).fetch_all(ex).await?.iter().map(task_from_row).collect()
+}
+
+/// When the next scheduled (queued, not yet due) task starts, if any.
+pub async fn next_task_start<'e, E: PgExecutor<'e>>(ex: E) -> Result<Option<DateTime<Utc>>, sqlx::Error> {
+    sqlx::query_scalar("SELECT min(start_at) FROM axom.tasks WHERE status = 'queued' AND start_at > now()").fetch_one(ex).await
 }
 
 pub async fn tasks_for_plan<'e, E: PgExecutor<'e>>(ex: E, plan_id: Uuid) -> Result<Vec<Task>, sqlx::Error> {

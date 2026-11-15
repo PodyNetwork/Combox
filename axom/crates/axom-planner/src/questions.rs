@@ -118,7 +118,7 @@ pub enum ReplyError {
 }
 
 /// Answer a worker's questions. The task goes back to its worker, which
-/// carries on with the reply (on the next task run, within a minute).
+/// carries on with the reply right away (the task loop is woken).
 pub async fn reply(pool: &PgPool, actor: &Actor, task_id: Uuid, text: &str) -> Result<(), ReplyError> {
     let text = text.trim();
     if text.is_empty() {
@@ -180,6 +180,8 @@ pub async fn reply(pool: &PgPool, actor: &Actor, task_id: Uuid, text: &str) -> R
         .bind(json!({ "from": name }))
         .execute(&mut *tx)
         .await?;
+    // Wake the task loop so the worker carries on now, not on the next minute.
+    sqlx::query("SELECT pg_notify('axom_tasks', $1)").bind(task_id.to_string()).execute(&mut *tx).await?;
     tx.commit().await?;
     Ok(())
 }

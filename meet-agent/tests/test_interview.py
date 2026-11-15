@@ -5,7 +5,7 @@ import json
 import pytest
 
 from axom_meet import guards
-from axom_meet.interview import CLOSING, DECLINED, TIME_UP, TIME_UP_NO_CONSENT, WRAP_UP_SECS, Criterion, Interview, Job
+from axom_meet.interview import CLOSING, DECLINED, ENDED, ENDED_NO_CONSENT, TIME_UP, TIME_UP_NO_CONSENT, WRAP_UP_SECS, Criterion, Interview, Job
 
 DISCLOSURE = "Hello, I'm an AI interviewer. This conversation is with an AI. Do you consent to this interview being recorded?"
 
@@ -115,6 +115,35 @@ def test_generated_follow_ups_that_commit_are_dropped():
     llm2 = FakeLLM(follow_up="Which tools did you use for the vector work?")
     iv2, said2, _ = run(["Yes", "I designed a logo."], llm=llm2)
     assert said2[-1] == "Which tools did you use for the vector work?"
+
+
+def test_will_think_only_before_a_possible_follow_up():
+    iv = Interview(job(), llm=FakeLLM(follow_up="Which tools did you use?"))
+    iv.start()
+    assert not iv.will_think(), "the consent answer never waits on the model"
+    iv.hear("Yes")
+    assert iv.will_think(), "the first answer to a question may get a follow-up"
+    iv.hear("I designed a logo.")
+    assert not iv.will_think(), "the answer to a follow-up goes straight to the next question"
+    assert not Interview(job()).will_think(), "no model, nothing to wait on"
+
+
+def test_follow_ups_come_from_the_fast_model_and_a_slow_one_is_skipped():
+    main, fast = FakeLLM(follow_up="From the main model?"), FakeLLM(follow_up="Which tools did you use?")
+    iv = Interview(job(), llm=main, follow_up_llm=fast)
+    iv.start()
+    iv.hear("Yes")
+    assert iv.hear("I designed a logo.").say == "Which tools did you use?"
+    assert main.prompts == [], "the participant never waits on the main model mid-conversation"
+
+    class TimesOut:
+        def complete(self, system, prompt):
+            raise TimeoutError("follow-up took too long")
+
+    iv = Interview(job(), llm=main, follow_up_llm=TimesOut())
+    iv.start()
+    iv.hear("Yes")
+    assert iv.hear("I designed a logo.").say == job().questions[1], "moves on instead of stalling"
 
 
 def test_transcript_injection_cannot_add_recipients_or_actions():
@@ -243,13 +272,76 @@ def test_time_up_closes_mid_interview_and_is_idempotent():
     assert iv.hear("one more thing").say is None
 
 
-def test_time_up_before_consent_reports_nothing():
+def test_time_up_before_consent_records_no_consent():
     events = []
     iv = Interview(job(), emit=events.append, clock=Clock())
     iv.start()
     r = iv.time_up()
     assert r.say == TIME_UP_NO_CONSENT and r.done and iv.state == "timed_out"
-    assert events == [] and iv.consent is None
+    # Combox hears that the call ended without consent, so it closes the meeting and its links.
+    assert [(e["event"], e["granted"], e["statement"]) for e in events] == [("consent", False, "")]
+    assert iv.time_up().say is None and len(events) == 1, "reported once"
+    with pytest.raises(AssertionError):
+        iv.results()
+
+
+# -- ending the call ------------------------------------------------------------------
+
+
+def test_participant_can_end_the_call_mid_interview():
+    iv, said, events = run(["Yes, I consent.", "I designed a fintech logo.", "Sorry, can we end the interview here? Something came up."])
+    assert said[-1] == ENDED and iv.state == "ended" and iv.ended_by == "requested"
+    assert [e["granted"] for e in events] == [True], "consent stays granted; no second consent event"
+    # The answers given so far are still reported.
+    r = iv.results()
+    assert any(t["text"] == "I designed a fintech logo." for t in r["transcript"])
+    assert iv.hear("hello?").say is None, "nothing is said after the goodbye"
+
+
+def test_ending_before_consent_records_no_consent_and_asks_nothing():
+    iv, said, events = run(["I'd like to end the call please."])
+    assert said == [DISCLOSURE, ENDED_NO_CONSENT] and iv.state == "ended"
+    assert events[0]["granted"] is False and events[0]["statement"] == "I'd like to end the call please."
+    assert not any(t.text in job().questions for t in iv.transcript)
+
+
+def test_short_goodbyes_end_the_call():
+    for line in ["Goodbye.", "can we stop here", "okay let's stop", "I'm done, thanks", "I have to go", "please end the meeting"]:
+        _, said, _ = run(["Yes", line])
+        assert said[-1] == ENDED, line
+
+
+def test_answers_that_mention_ending_things_do_not_end_the_call():
+    for answer in [
+        "I like to end the meeting with a recap.",
+        "My client wanted to end the call early, so I sent a summary.",
+        "We had to stop the project after the funding round.",
+        "When I'm done with a draft I share it.",
+        "I want to stop working weekends eventually.",
+        "I usually say goodbye to clients by email.",
+        "I'd like to finish the design system first.",
+    ]:
+        assert not guards.wants_to_end(answer), answer
+        iv, said, _ = run(["Yes", answer])
+        assert iv.state == "questions", answer
+
+
+def test_participant_leaving_ends_the_interview():
+    # Mid-interview: results are still reported, nothing new is recorded about consent.
+    iv, _, events = run(["Yes", "I designed a logo."])
+    iv.left()
+    assert iv.state == "ended" and iv.ended_by == "left" and len(events) == 1
+    assert iv.results()["event"] == "completed"
+    # Before consent: no consent is recorded, so the meeting closes.
+    events2 = []
+    iv2 = Interview(job(), emit=events2.append)
+    iv2.start()
+    iv2.left()
+    assert iv2.state == "ended" and events2[0]["granted"] is False
+    # After a normal close, leaving changes nothing.
+    iv3, _, events3 = run(["No."])
+    iv3.left()
+    assert iv3.state == "declined" and len(events3) == 1
 
 
 def test_join_deadline():
@@ -274,3 +366,184 @@ def test_deepgram_is_the_default_voice_and_cartesia_is_opt_in():
     assert tts_provider({"AXOM_MEET_TTS": "Cartesia"}) == "cartesia"
     with pytest.raises(ValueError):
         tts_provider({"AXOM_MEET_TTS": "elevenlabs"})
+
+
+# -- questions written by the AI ------------------------------------------------
+
+from axom_meet.interview import GENERIC_QUESTIONS, MIN_AI_QUESTIONS, TARGET_QUESTIONS, WELCOME_BACK, plan_questions, write_questions
+
+
+class QuestionLLM:
+    def __init__(self, reply):
+        self.reply, self.calls = reply, []
+
+    def complete(self, system, prompt):
+        self.calls.append((system, prompt))
+        if isinstance(self.reply, Exception):
+            raise self.reply
+        return self.reply
+
+
+def role_job(own=(), generate=True, fallback=("Fallback question about your work?",)):
+    j = job(own)
+    j.instructions = "Structured interview for the role: Backend engineer. Required skills: rust, postgres."
+    j.generate_questions = generate
+    j.fallback_questions = list(fallback)
+    return j
+
+
+def test_metadata_without_owner_questions_asks_the_ai_to_write_them():
+    meta = {
+        "meeting_id": "m1", "instructions": "Backend engineer", "questions": [], "rubric": [{"name": "skill_depth", "description": "x"}],
+        "disclosure": DISCLOSURE, "generate_questions": True, "fallback_questions": ["F1?", " "],
+    }
+    j = Job.from_metadata(json.dumps(meta))
+    assert j.questions == [] and j.generate_questions and j.fallback_questions == ["F1?"]
+    # Older metadata with questions and no flag keeps them as they are.
+    old = Job.from_metadata(json.dumps({**meta, "questions": ["Q1?"], "generate_questions": None} | {}))
+    assert old.questions == ["Q1?"]
+    legacy = {k: v for k, v in meta.items() if k not in ("generate_questions", "fallback_questions")}
+    assert Job.from_metadata(json.dumps({**legacy, "questions": ["Q1?"]})).generate_questions is False
+    assert Job.from_metadata(json.dumps(legacy)).generate_questions is True
+
+
+def test_ai_writes_the_questions_from_the_role():
+    written = ["How did you design the schema for your last Postgres project?", "Walk me through debugging a slow Rust service?",
+               "How do you test database migrations before release?", "Tell me about an API you designed end to end?",
+               "How do you review a teammate's pull request?"]
+    llm = QuestionLLM(json.dumps({"questions": written}))
+    qs = plan_questions(role_job(), llm)
+    assert qs == written
+    system, prompt = llm.calls[0]
+    assert f"exactly {TARGET_QUESTIONS}" in system and "Backend engineer" in prompt and "skill_depth" in prompt
+
+
+def test_owner_questions_come_first_and_the_ai_adds_its_own():
+    own = ("Tell me about your open-source work?",)
+    llm = QuestionLLM('Sure! ```json\n{"questions": ["Tell me about your open-source work?", "How do you size a database for growth?", "How do you handle an on-call incident?", "Describe your approach to API versioning?", "How do you document a service for other teams?"]}\n```')
+    qs = plan_questions(role_job(own), llm)
+    assert qs[0] == own[0]
+    assert qs.count(own[0]) == 1, "the AI's duplicate of an owner question is dropped"
+    assert len(qs) == 5
+    # Many owner questions: the AI still adds a couple.
+    many = tuple(f"Owner question number {i}?" for i in range(6))
+    llm = QuestionLLM(json.dumps({"questions": ["How do you plan a database migration?", "How do you profile a slow endpoint?"]}))
+    qs = plan_questions(role_job(many), llm)
+    assert qs[:6] == list(many) and len(qs) == 6 + MIN_AI_QUESTIONS
+
+
+def test_unsafe_generated_questions_are_dropped():
+    llm = QuestionLLM(json.dumps({"questions": [
+        "How old are you?", "What hourly rate do you expect?", "Do you have kids at home?", "Not a question",
+        "Where are you from originally, what is your nationality?", "How do you keep a Rust codebase maintainable?",
+    ]}))
+    assert write_questions(llm, role_job(), 5) == ["How do you keep a Rust codebase maintainable?"]
+
+
+def test_without_a_model_or_on_failure_the_interview_still_has_questions():
+    assert plan_questions(role_job(), None) == ["Fallback question about your work?"]
+    assert plan_questions(role_job(("Mine?",)), None) == ["Mine?"]
+    assert plan_questions(role_job(), QuestionLLM(RuntimeError("model down"))) == ["Fallback question about your work?"]
+    assert plan_questions(role_job(), QuestionLLM("not json at all")) == ["Fallback question about your work?"]
+    assert plan_questions(role_job(fallback=()), None) == GENERIC_QUESTIONS
+    # Generation off: the owner's questions only.
+    llm = QuestionLLM(json.dumps({"questions": ["How do you plan a database migration?"]}))
+    assert plan_questions(role_job(("Mine?",), generate=False), llm) == ["Mine?"] and llm.calls == []
+
+
+def test_consent_with_no_planned_questions_never_stalls():
+    j = role_job()
+    iv = Interview(j)
+    iv.start()
+    r = iv.hear("Yes, I consent.")
+    assert r.say == "Fallback question about your work?" and iv.state == "questions"
+
+
+def test_welcome_back_repeats_where_the_interview_is():
+    iv = Interview(job())
+    assert iv.resume() is None, "nothing to resume before it starts"
+    iv.start()
+    assert iv.resume() == f"{WELCOME_BACK} {DISCLOSURE}"
+    iv.hear("Yes, I consent.")
+    assert iv.resume() == f"{WELCOME_BACK} {job().questions[0]}"
+    iv.hear("I designed a fintech logo.")
+    assert iv.resume() == f"{WELCOME_BACK} {job().questions[1]}"
+    iv.hear("I iterate quickly.")
+    assert iv.state == "done" and iv.resume() is None
+
+
+def test_safe_question_guard():
+    assert guards.safe_question("How do you approach code review?") == "How do you approach code review?"
+    for bad in ["Are you married?", "What's your salary expectation?", "Will you sign the contract?", "Tell me about yourself.", "", None, "Why?"]:
+        assert guards.safe_question(bad) is None, bad
+
+
+# -- playback ------------------------------------------------------------------------
+
+
+def test_the_agent_voice_buffer_is_raised_so_short_stalls_do_not_break_it(monkeypatch):
+    from livekit import rtc
+    from livekit.agents.voice.room_io import _output, room_io
+
+    from axom_meet.playback import AUDIO_BUFFER_MS, use_audio_buffer
+
+    class Source:
+        def __init__(self, sample_rate, num_channels, queue_size_ms=1000):
+            self.queue_size_ms = queue_size_ms
+
+    monkeypatch.setattr(rtc, "AudioSource", Source)
+    monkeypatch.setattr(room_io, "_ParticipantAudioOutput", room_io._ParticipantAudioOutput)
+    use_audio_buffer()
+    out_cls = room_io._ParticipantAudioOutput
+    assert issubclass(out_cls, _output._ParticipantAudioOutput), "livekit-agents moved its room audio output: re-check playback.py"
+    out = out_cls(object(), sample_rate=24000, num_channels=1, track_publish_options=None)
+    assert isinstance(out._audio_source, Source) and out._audio_source.queue_size_ms == AUDIO_BUFFER_MS
+
+
+def test_the_opening_line_is_played_from_presynthesized_audio_only_when_ready():
+    import asyncio
+
+    from axom_meet.playback import presynthesize, ready_audio
+
+    class Chunk:
+        def __init__(self, frame):
+            self.frame = frame
+
+    class Stream:
+        def __init__(self, frames):
+            self.frames = frames
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return False
+
+        def __aiter__(self):
+            async def gen():
+                for f in self.frames:
+                    yield Chunk(f)
+
+            return gen()
+
+    class TTS:
+        def __init__(self, frames):
+            self.frames = frames
+
+        def synthesize(self, text):
+            return Stream(self.frames)
+
+    async def main():
+        done = asyncio.create_task(presynthesize(TTS(["f1", "f2"]), "Hello"))
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+        assert ready_audio(done) == ["f1", "f2"]
+        failed = asyncio.create_task(presynthesize(TTS([]), "Hello"))
+        await asyncio.sleep(0)
+        assert ready_audio(failed) is None, "no audio: speak it live instead"
+        slow = asyncio.create_task(asyncio.sleep(10))
+        assert ready_audio(slow) is None, "never waits for audio that is not ready"
+        slow.cancel()
+        assert ready_audio(None) is None
+
+    asyncio.run(main())

@@ -232,6 +232,9 @@ pub trait MeetingRooms: Send + Sync {
     async fn end_room(&self, auth: &Authorized, room: &str) -> ToolResult<()>;
     /// Send the meeting agent into a room with job metadata.
     async fn dispatch_agent(&self, auth: &Authorized, room: &str, agent_name: &str, metadata: &str) -> ToolResult<String>;
+    /// Whether an agent named `agent_name` is connected to the room right now
+    /// (`false` when the room does not exist).
+    async fn agent_in_room(&self, auth: &Authorized, room: &str, agent_name: &str) -> ToolResult<bool>;
 }
 
 // ---------------------------------------------------------------------------

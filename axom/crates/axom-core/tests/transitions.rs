@@ -19,6 +19,7 @@ async fn invalid_task_transition_is_rejected_and_audited(pool: PgPool) {
         status: TaskStatus::Queued,
         result: None,
         cost_usd: Decimal::ZERO,
+        start_at: None, worker_kind: None,
     };
     db::insert_task(&pool, &t, &TaskPlacement::default()).await.unwrap();
 

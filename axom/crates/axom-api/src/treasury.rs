@@ -52,7 +52,7 @@ impl TreasuryConfig {
     /// The network and RPC from the environment, with this source.
     pub fn with_source(source: Option<TreasurySource>) -> Self {
         let network = if env("NEAR_NETWORK").as_deref() == Some("mainnet") { "mainnet" } else { "testnet" };
-        let rpc_url = env("NEAR_RPC_URL").unwrap_or_else(|| format!("https://rpc.{network}.near.org"));
+        let rpc_url = env("NEAR_RPC_URL").unwrap_or_else(|| format!("https://rpc.{network}.fastnear.com"));
         Self { source, network: network.into(), rpc_url }
     }
 }
@@ -90,6 +90,24 @@ async fn from_signer(base: &str, network: &str) -> Result<String, String> {
     Ok(account)
 }
 
+/// The signer's account, remembered: it is derived from a key that doesn't
+/// change, so the dashboard needn't wait on the signer for every load.
+async fn signer_account(base: &str, network: &str) -> Result<String, String> {
+    // Per signer and network, so a network mismatch is never hidden by an earlier answer.
+    static KNOWN: OnceLock<Mutex<HashMap<String, (String, Instant)>>> = OnceLock::new();
+    let key = format!("{base} {network}");
+    let known = KNOWN.get_or_init(Default::default);
+    if let Some((a, t)) = known.lock().unwrap().get(&key) {
+        if t.elapsed() < SIGNER_FRESH {
+            return Ok(a.clone());
+        }
+    }
+    let a = from_signer(base, network).await?;
+    known.lock().unwrap().insert(key, (a.clone(), Instant::now()));
+    Ok(a)
+}
+const SIGNER_FRESH: Duration = Duration::from_secs(10 * 60);
+
 /// `GET /admin/treasury`: MFA-verified admins only.
 pub async fn treasury(State(s): State<AppState>, headers: HeaderMap) -> Response {
     if let Err(r) = mfa_admin(&s, &headers).await {
@@ -108,7 +126,7 @@ pub async fn treasury(State(s): State<AppState>, headers: HeaderMap) -> Response
     let account = match &t.source {
         None => return reply(StatusCode::OK, v),
         Some(TreasurySource::Account(a)) => a.clone(),
-        Some(TreasurySource::Signer(url)) => match from_signer(url, &t.network).await {
+        Some(TreasurySource::Signer(url)) => match signer_account(url, &t.network).await {
             Ok(a) => a,
             Err(e) => {
                 v["error"] = json!(e);
@@ -118,9 +136,10 @@ pub async fn treasury(State(s): State<AppState>, headers: HeaderMap) -> Response
     };
     v["explorer_url"] = json!(explorer_url(&t.network, &account));
     v["account"] = json!(account);
-    let price = usd_per_near(&t.network).await;
+    // Price and balance are independent lookups: ask both at once.
+    let (price, bal) = tokio::join!(usd_per_near(&t.network), balance(&t.rpc_url, &account));
     v["price"] = price.as_ref().map(|p| json!({ "usd_per_near": p.usd_per_near.to_string(), "as_of": p.as_of, "pinned": p.pinned })).unwrap_or(Value::Null);
-    match balance(&t.rpc_url, &account).await {
+    match bal {
         Some((b, fetched)) => {
             let usd = |yocto: u128| price.as_ref().map(|p| near_decimal(yocto).checked_mul(p.usd_per_near).map(|u| u.round_dp(2).to_string()));
             v["balance"] = match b {

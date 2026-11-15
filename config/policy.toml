@@ -45,7 +45,8 @@ max_shortfall_bps = 300
 # Treasury yield on Rhea Finance lending. NEAR that payroll may not spend this
 # month is supplied to Rhea and withdrawn again before payroll needs it.
 # Supply only: never borrows, never collateral; funds only ever return to the
-# treasury. Off until the owner turns it on (or TREASURY_YIELD_ENABLED=true).
+# treasury. This is the platform default: off until the owner turns it on in
+# Settings (Treasury yield), or TREASURY_YIELD_ENABLED=true for everyone.
 yield_enabled = false
 # Liquid floor = NEAR owed on unsent payouts + the monthly cap's remaining
 # headroom at the current price + min_liquid_near. Supplying stops this far

@@ -89,7 +89,7 @@ pub trait NearRpc: Send + Sync {
 }
 
 pub fn testnet_rpc_url() -> String {
-    std::env::var("NEAR_RPC_URL").unwrap_or_else(|_| "https://rpc.testnet.near.org".into())
+    std::env::var("NEAR_RPC_URL").unwrap_or_else(|_| "https://rpc.testnet.fastnear.com".into())
 }
 
 pub struct JsonRpcNear {

@@ -36,6 +36,11 @@ async fn dispatched(pool: &PgPool, tools: &MockTools) -> (Uuid, String, String) 
     (m.meeting_id, meta["callback_token"].as_str().unwrap().to_string(), m.invites[0].1.clone())
 }
 
+/// Links for this meeting that would still let someone in.
+async fn live_links(pool: &PgPool, id: Uuid) -> i64 {
+    sqlx::query_scalar("SELECT count(*) FROM axom.meeting_invites WHERE meeting_id = $1 AND expires_at > now()").bind(id).fetch_one(pool).await.unwrap()
+}
+
 fn completed(text: &str) -> AgentEvent {
     let mut scores = BTreeMap::new();
     scores.insert("skill_depth".to_string(), 4);
@@ -76,7 +81,8 @@ async fn consent_is_recorded_before_transcript_and_dispatch_carries_disclosure(p
     assert!(consent["disclosure"].as_str().unwrap().contains("AI interviewer"));
     assert_eq!(scores["skill_depth"], 4);
     assert!(rubric.is_array(), "rubric stored with the meeting");
-    // Join links stop working after the meeting.
+    // Join links stop working after the meeting: every one is expired.
+    assert_eq!(live_links(&pool, id).await, 0);
     let p = policy();
     assert!(meetings::join(&pool, &p, &tools, "wss://lk", "https://api.example.com", &invite).await.is_err());
 }
@@ -84,12 +90,22 @@ async fn consent_is_recorded_before_transcript_and_dispatch_carries_disclosure(p
 #[sqlx::test(migrator = "axom_core::MIGRATOR")]
 async fn declined_consent_ends_the_meeting(pool: PgPool) {
     let tools = MockTools::new();
-    let (id, token, _) = dispatched(&pool, &tools).await;
+    let (id, token, invite) = dispatched(&pool, &tools).await;
+    // While the call runs, the links work (a dropped connection can rejoin).
+    let admin = Actor::Admin { name: "owner".into(), mfa_verified: true };
+    let host = meetings::admin_join_link(&pool, &admin, id, "owner@example.com").await.unwrap();
+    assert!(live_links(&pool, id).await >= 2);
     assert_eq!(
         meetings::record_callback(&pool, id, &token, AgentEvent::Consent { granted: false, statement: "No.".into(), at: Utc::now() }).await.unwrap(),
         "consent_declined"
     );
     assert!(meetings::record_callback(&pool, id, &token, completed("x")).await.is_err(), "nothing accepted after a decline");
+    // The call ended: invitee and host links are expired.
+    assert_eq!(live_links(&pool, id).await, 0);
+    let p = policy();
+    for link in [&invite, &host] {
+        assert!(meetings::join(&pool, &p, &tools, "wss://lk", "https://api.example.com", link).await.is_err());
+    }
 }
 
 #[sqlx::test(migrator = "axom_core::MIGRATOR")]
@@ -228,28 +244,108 @@ async fn agent_for_a_later_interview_is_sent_when_the_candidate_joins(pool: PgPo
     let (status, sent_at): (String, Option<chrono::DateTime<Utc>>) = sqlx::query_as("SELECT status, dispatched_at FROM axom.meetings WHERE id = $1").bind(m.meeting_id).fetch_one(&pool).await.unwrap();
     assert_eq!((status.as_str(), sent_at), ("dispatched", None));
 
-    // An admin opening the room early does not bring the agent.
+    // The owner opening the room from the dashboard brings the agent too: it
+    // recreates the room and sends the agent in.
     let admin = Actor::Admin { name: "owner".into(), mfa_verified: true };
     let host = meetings::admin_join_link(&pool, &admin, m.meeting_id, "owner@example.com").await.unwrap();
-    meetings::join(&pool, &p, &tools, "wss://lk", "https://api.example.com", &host).await.unwrap();
-    assert!(dispatches(&tools).is_empty());
-
-    // Interview time: the candidate's join recreates the room and sends the agent.
-    sqlx::query("UPDATE axom.meetings SET scheduled_at = now() WHERE id = $1").bind(m.meeting_id).execute(&pool).await.unwrap();
-    sqlx::query("UPDATE axom.meeting_invites SET expires_at = now() + interval '10 minutes' WHERE meeting_id = $1").bind(m.meeting_id).execute(&pool).await.unwrap();
     let before = tools.calls_to("livekit").len();
-    meetings::join(&pool, &p, &tools, "wss://lk", "https://api.example.com", &m.invites[0].1).await.unwrap();
+    meetings::join(&pool, &p, &tools, "wss://lk", "https://api.example.com", &host).await.unwrap();
     let calls: Vec<_> = tools.calls_to("livekit").into_iter().skip(before).map(|c| c.method).collect();
     assert_eq!(calls, ["participant_token", "create_room", "dispatch_agent"]);
+    // A host join does not start the applicant's clock.
+    let first: Option<chrono::DateTime<Utc>> = sqlx::query_scalar("SELECT first_joined_at FROM axom.meetings WHERE id = $1").bind(m.meeting_id).fetch_one(&pool).await.unwrap();
+    assert!(first.is_none());
     let meta: serde_json::Value = serde_json::from_str(dispatches(&tools)[0].args["metadata"].as_str().unwrap()).unwrap();
     assert_eq!(meta["questions"][0], "Q?");
     assert_eq!(meta["callback_url"], format!("https://api.example.com/meetings/{}/callback", m.meeting_id));
     // The token in the agent's job is the one the callback accepts.
     meetings::check_agent_token(&pool, m.meeting_id, meta["callback_token"].as_str().unwrap()).await.unwrap();
 
-    // Joining again (a reload, a second invitee) sends no second agent.
+    // The applicant joining while it is there, and joining again (a reload),
+    // sends no second agent, even once it has been in the room a while.
+    meetings::join(&pool, &p, &tools, "wss://lk", "https://api.example.com", &m.invites[0].1).await.unwrap();
+    sqlx::query("UPDATE axom.meetings SET dispatched_at = now() - interval '5 minutes' WHERE id = $1").bind(m.meeting_id).execute(&pool).await.unwrap();
     meetings::join(&pool, &p, &tools, "wss://lk", "https://api.example.com", &m.invites[0].1).await.unwrap();
     assert_eq!(dispatches(&tools).len(), 1);
+}
+
+#[sqlx::test(migrator = "axom_core::MIGRATOR")]
+async fn an_agent_that_left_is_replaced_on_the_next_join(pool: PgPool) {
+    let tools = MockTools::new();
+    let p = policy();
+    let (id, token, invite) = dispatched(&pool, &tools).await;
+    let dispatches = |t: &MockTools| t.calls_to("livekit").into_iter().filter(|c| c.method == "dispatch_agent").collect::<Vec<_>>();
+    let room: String = sqlx::query_scalar("SELECT room FROM axom.meetings WHERE id = $1").bind(id).fetch_one(&pool).await.unwrap();
+    let consent = AgentEvent::Consent { granted: true, statement: "Yes".into(), at: Utc::now() };
+    meetings::record_callback(&pool, id, &token, consent.clone()).await.unwrap();
+
+    // The candidate left, the agent left with them, and LiveKit closed the room.
+    tools.agent_left(&room);
+    // Rejoining right after it was sent: it is still on its way, so nothing is sent.
+    meetings::join(&pool, &p, &tools, "wss://lk", "https://api.example.com", &invite).await.unwrap();
+    assert_eq!(dispatches(&tools).len(), 1);
+
+    // Later, the rejoin sends a new agent, which starts over: consent is asked again.
+    sqlx::query("UPDATE axom.meetings SET dispatched_at = now() - interval '2 minutes' WHERE id = $1").bind(id).execute(&pool).await.unwrap();
+    meetings::join(&pool, &p, &tools, "wss://lk", "https://api.example.com", &invite).await.unwrap();
+    let sent = dispatches(&tools);
+    assert_eq!(sent.len(), 2);
+    let meta: serde_json::Value = serde_json::from_str(sent[1].args["metadata"].as_str().unwrap()).unwrap();
+    let new_token = meta["callback_token"].as_str().unwrap();
+    assert!(matches!(meetings::check_agent_token(&pool, id, &token).await, Err(MeetingError::BadToken)), "the old agent's token is retired");
+    meetings::record_callback(&pool, id, new_token, consent).await.expect("the new agent can record consent");
+    let replaced: i64 = sqlx::query_scalar("SELECT count(*) FROM axom.audit_log WHERE action = 'meeting.agent_sent' AND outcome = 'replacing'").fetch_one(&pool).await.unwrap();
+    assert_eq!(replaced, 1);
+
+    // The owner joining from the dashboard also brings it back.
+    tools.agent_left(&room);
+    sqlx::query("UPDATE axom.meetings SET dispatched_at = now() - interval '2 minutes' WHERE id = $1").bind(id).execute(&pool).await.unwrap();
+    let admin = Actor::Admin { name: "owner".into(), mfa_verified: true };
+    let host = meetings::admin_join_link(&pool, &admin, id, "owner@example.com").await.unwrap();
+    meetings::join(&pool, &p, &tools, "wss://lk", "https://api.example.com", &host).await.unwrap();
+    assert_eq!(dispatches(&tools).len(), 3);
+
+    // A finished interview is not reopened.
+    let meta: serde_json::Value = serde_json::from_str(dispatches(&tools)[2].args["metadata"].as_str().unwrap()).unwrap();
+    let t3 = meta["callback_token"].as_str().unwrap();
+    meetings::record_callback(&pool, id, t3, AgentEvent::Consent { granted: true, statement: "Yes".into(), at: Utc::now() }).await.unwrap();
+    meetings::record_callback(&pool, id, t3, completed("I designed a logo.")).await.unwrap();
+    tools.agent_left(&room);
+    assert!(meetings::join(&pool, &p, &tools, "wss://lk", "https://api.example.com", &host).await.is_err());
+    assert_eq!(dispatches(&tools).len(), 3);
+}
+
+#[sqlx::test(migrator = "axom_core::MIGRATOR")]
+async fn a_meeting_nobody_set_up_still_gets_the_interviewer_on_join(pool: PgPool) {
+    let tools = MockTools::new();
+    let p = policy();
+    cap::seed_cap(&pool, &p).await.unwrap();
+    // Created, no interviewer assigned and no invites emailed: the owner opens it from the dashboard.
+    let m = meetings::create_meeting(&pool, &p, &tools, &Actor::System, "Interview: Copywriter", Utc::now(), &["c@example.com".into()], None).await.unwrap();
+    let admin = Actor::Admin { name: "owner".into(), mfa_verified: true };
+    let host = meetings::admin_join_link(&pool, &admin, m.meeting_id, "owner@example.com").await.unwrap();
+    meetings::join(&pool, &p, &tools, "wss://lk", "https://api", &host).await.unwrap();
+    let call = tools.calls_to("livekit").into_iter().rfind(|c| c.method == "dispatch_agent").expect("agent sent on the host join");
+    let meta: serde_json::Value = serde_json::from_str(call.args["metadata"].as_str().unwrap()).unwrap();
+    assert_eq!(meta["questions"], serde_json::json!([]), "no owner questions: the agent writes them");
+    assert_eq!(meta["generate_questions"], true);
+    assert_eq!(meta["fallback_questions"], serde_json::json!(meetings::default_questions()));
+    assert!(meta["instructions"].as_str().unwrap().contains("Copywriter"));
+}
+
+#[sqlx::test(migrator = "axom_core::MIGRATOR")]
+async fn owner_questions_are_optional(pool: PgPool) {
+    let tools = MockTools::new();
+    let p = policy();
+    cap::seed_cap(&pool, &p).await.unwrap();
+    let m = meetings::create_meeting(&pool, &p, &tools, &Actor::System, "Interview", Utc::now(), &["c@example.com".into()], None).await.unwrap();
+    meetings::dispatch_agent(&pool, &p, &tools, &Actor::System, m.meeting_id, "Backend engineer", &[], None, "https://api").await.expect("no questions is fine");
+    // Blank entries (an empty row in the form) are dropped.
+    meetings::dispatch_agent(&pool, &p, &tools, &Actor::System, m.meeting_id, "Backend engineer", &["  ".into(), " Walk me through your last API. ".into()], None, "https://api").await.unwrap();
+    let q: serde_json::Value = sqlx::query_scalar("SELECT questions FROM axom.meetings WHERE id = $1").bind(m.meeting_id).fetch_one(&pool).await.unwrap();
+    assert_eq!(q, serde_json::json!(["Walk me through your last API."]));
+    let too_many: Vec<String> = (0..21).map(|i| format!("Q{i}?")).collect();
+    assert!(matches!(meetings::dispatch_agent(&pool, &p, &tools, &Actor::System, m.meeting_id, "", &too_many, None, "https://api").await, Err(MeetingError::Invalid(_))));
 }
 
 #[sqlx::test(migrator = "axom_core::MIGRATOR")]
@@ -266,13 +362,14 @@ async fn emailed_links_always_come_with_interviewer_questions(pool: PgPool) {
     };
 
     // Created and emailed with no questions (the dashboard's optional step skipped):
-    // the defaults are set before the email goes out.
+    // the interviewer is assigned before the email goes out, with no owner
+    // questions: it writes its own.
     let m = meetings::create_meeting(&pool, &p, &tools, &Actor::System, "Interview: Designer", Utc::now(), &["cand@example.com".into()], None).await.unwrap();
     assert_eq!(job(m.meeting_id).await, ("scheduled".to_string(), None));
     meetings::send_invites(&pool, &p, &tools, &Actor::System, m.meeting_id, &m.invites, "https://meet.example.com", "axom@example.com").await.unwrap();
     let (status, questions) = job(m.meeting_id).await;
     assert_eq!(status, "dispatched");
-    assert_eq!(questions.unwrap(), serde_json::json!(meetings::default_questions()));
+    assert_eq!(questions.unwrap(), serde_json::json!([]));
     assert!(tools.calls_to("smtp").len() == 1);
 
     // They can still be replaced before anyone joins (the dashboard's step 2).

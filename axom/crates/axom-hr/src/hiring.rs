@@ -203,21 +203,30 @@ pub async fn post_job(pool: &PgPool, cfg: &PolicyConfig, market: &dyn FreelanceM
     Ok(id)
 }
 
-/// Deterministic shortlist score: fraction of the job's skills listed on the
-/// applicant's profile. The cover letter (untrusted) is never parsed for
-/// instructions; it only contributes plain keyword matches.
+/// Deterministic shortlist score: how much of the job's skills the applicant
+/// lists. Skills are typed freely on the jobs board, so case, spaces and
+/// word forms don't matter: "Graphic Design" is `graphic_design` (1 point),
+/// and "brand designer" is related to `visual_design` through "design" (half
+/// a point). The cover letter (untrusted) is never parsed for instructions;
+/// it only contributes plain keyword matches (half a point).
 pub fn shortlist_score(job_skills: &[String], profile_skills: &[String], message: &str) -> f64 {
     if job_skills.is_empty() {
         return 0.0;
     }
+    let norm = |s: &str| s.to_lowercase().split(|c: char| !c.is_alphanumeric()).filter(|w| !w.is_empty()).collect::<Vec<_>>().join("_");
+    // Words of four letters or more; one starting with the other counts as related ("design", "designer").
+    let words = |s: &str| norm(s).split('_').filter(|w| w.len() >= 4).map(String::from).collect::<Vec<_>>();
+    let profile: Vec<String> = profile_skills.iter().map(|p| norm(p)).collect();
+    let profile_words: Vec<String> = profile_skills.iter().flat_map(|p| words(p)).collect();
     let msg = message.to_lowercase();
     let hits: f64 = job_skills
         .iter()
         .map(|s| {
-            let s = s.to_lowercase();
-            if profile_skills.iter().any(|p| p.eq_ignore_ascii_case(&s)) {
+            let s = norm(s);
+            let related = words(&s).iter().any(|w| profile_words.iter().any(|p| p.starts_with(w.as_str()) || w.starts_with(p.as_str())));
+            if profile.contains(&s) {
                 1.0
-            } else if msg.contains(&s.replace('_', " ")) {
+            } else if related || msg.contains(&s.replace('_', " ")) {
                 0.5
             } else {
                 0.0
@@ -279,8 +288,8 @@ fn candidate_address(email: &Option<String>, external_id: &str) -> String {
     email.clone().unwrap_or_else(|| format!("upwork-{}@candidates.axom.invalid", external_id.chars().filter(|c| c.is_ascii_alphanumeric()).collect::<String>()))
 }
 
-/// Create the interview meeting, dispatch the interviewer with the role's
-/// questions and rubric, and send the candidate the join link through the
+/// Create the interview meeting, dispatch the interviewer with the role
+/// (it writes its own questions from it) and rubric, and send the candidate the join link through the
 /// marketplace (email for the jobs board, messages on Upwork).
 ///
 /// The meeting is linked to the candidate before the link is sent. If the
@@ -289,6 +298,18 @@ fn candidate_address(email: &Option<String>, external_id: &str) -> String {
 /// link instead of booking another one, as long as it is unjoined and its
 /// links have at least [`INVITE_REUSE_MIN_HOURS`] left. Otherwise the stale
 /// meeting is cancelled and a new one is booked.
+/// At most `max` bytes of `s`, cut at a character boundary.
+fn clip(s: &str, max: usize) -> &str {
+    if s.len() <= max {
+        return s;
+    }
+    let mut end = max;
+    while !s.is_char_boundary(end) {
+        end -= 1;
+    }
+    &s[..end]
+}
+
 #[allow(clippy::too_many_arguments)]
 pub async fn invite_to_interview(
     pool: &PgPool,
@@ -313,11 +334,16 @@ pub async fn invite_to_interview(
     let skills: Vec<String> = serde_json::from_value(spec["skills"].clone()).unwrap_or_default();
     let actor = Actor::agent("hr");
     let invitee = candidate_address(&email, &ext);
-    let questions = vec![
-        format!("Tell me about a recent project where you used {}.", skills.first().cloned().unwrap_or_else(|| "your main skill".into()).replace('_', " ")),
-        "Walk me through how you would approach the first week of this work.".to_string(),
-        "How do you make sure work is delivered on time and meets the acceptance criteria?".to_string(),
-    ];
+    // The interviewer writes its questions from the role: title, skills, and
+    // the job post's text (the owner's, so trusted context).
+    let description: String = spec["description"].as_str().unwrap_or("").trim().chars().take(2500).collect();
+    let mut instructions = format!("Structured interview for the role: {title}.");
+    if !skills.is_empty() {
+        instructions.push_str(&format!(" Required skills: {}.", skills.iter().map(|s| s.replace('_', " ")).collect::<Vec<_>>().join(", ")));
+    }
+    if !description.is_empty() {
+        instructions.push_str(&format!("\n\nJob description:\n{description}"));
+    }
     let rubric = vec![
         Criterion { name: "skill_depth".into(), description: format!("Depth in {}", skills.join(", ")) },
         Criterion { name: "relevant_experience".into(), description: "Experience directly relevant to the role's tasks".into() },
@@ -349,10 +375,10 @@ pub async fn invite_to_interview(
     let (meeting_id, scheduled_at, invite_token, reused) = match reusable {
         Some((id, at, _)) => (id, at, meetings::new_invite_link(pool, id, &invitee).await?, true),
         None => {
-            let m = meetings::create_meeting(pool, cfg, rooms, &actor, &format!("Interview: {title} with {name}"), scheduled_at, std::slice::from_ref(&invitee), None).await?;
-            meetings::dispatch_agent(pool, cfg, rooms, &actor, m.meeting_id, &format!("Structured interview for the role: {title}."), &questions, Some(rubric.clone()), api_url).await?;
-            // Linked before sending, so a failed send is retried with this meeting.
+            let m = meetings::create_meeting(pool, cfg, rooms, &actor, clip(&format!("Interview: {title} with {name}"), 200), scheduled_at, std::slice::from_ref(&invitee), None).await?;
+            // Linked before dispatching and sending, so any failure is retried with this meeting.
             sqlx::query("UPDATE axom.candidates SET meeting_id = $2, updated_at = now() WHERE id = $1").bind(candidate_id).bind(m.meeting_id).execute(pool).await?;
+            meetings::dispatch_agent(pool, cfg, rooms, &actor, m.meeting_id, clip(&instructions, 4000), &[], Some(rubric.clone()), api_url).await?;
             (m.meeting_id, scheduled_at, m.invites[0].1.clone(), false)
         }
     };
@@ -461,8 +487,15 @@ pub async fn send_contract(
         wallet_address: None,
         kpis: vec![],
     };
+    // A planned human role covering the job's skills places the hire in its team (org chart).
+    let role: Option<(Uuid, Uuid)> = sqlx::query_as(
+        "SELECT team_id, id FROM axom.roles WHERE kind = 'human_freelancer' AND skills @> $1 ORDER BY cardinality(skills) LIMIT 1",
+    )
+    .bind(w.skills.iter().cloned().collect::<Vec<_>>())
+    .fetch_optional(pool)
+    .await?;
     let mut tx = pool.begin().await?;
-    db::insert_worker(&mut *tx, None, None, &w).await?;
+    db::insert_worker(&mut *tx, role.map(|r| r.0), role.map(|r| r.1), &w).await?;
     sqlx::query("UPDATE axom.candidates SET status = 'contract_sent', contract_submission_id = $2, worker_id = $3, updated_at = now() WHERE id = $1")
         .bind(candidate_id)
         .bind(&submission_id)
@@ -545,6 +578,16 @@ pub async fn daily_digest(pool: &PgPool, since: DateTime<Utc>) -> Result<Uuid, H
 /// Act on open hiring requests: AI requests hire immediately; human requests
 /// get a job posting (once).
 pub async fn process_open_requests(pool: &PgPool, cfg: &PolicyConfig, market: &dyn FreelanceMarketplace) -> Result<Vec<(Uuid, String)>, HiringError> {
+    // A routing request whose task found a worker meanwhile (say, the hire
+    // for a twin task) is no longer needed: cancel it before anything is posted.
+    sqlx::query(
+        "UPDATE axom.hiring_requests h SET status = 'cancelled' FROM axom.tasks t
+         WHERE h.status = 'open' AND h.task_id = t.id AND t.status <> 'queued' AND h.reason = $1
+           AND NOT EXISTS (SELECT 1 FROM axom.job_postings j WHERE j.hiring_request_id = h.id)",
+    )
+    .bind(crate::routing::NO_WORKER_REASON)
+    .execute(pool)
+    .await?;
     let open: Vec<(Uuid, String)> = sqlx::query_as(
         "SELECT h.id, h.kind FROM axom.hiring_requests h WHERE h.status = 'open'
            AND NOT EXISTS (SELECT 1 FROM axom.job_postings j WHERE j.hiring_request_id = h.id) ORDER BY h.created_at",
@@ -557,11 +600,6 @@ pub async fn process_open_requests(pool: &PgPool, cfg: &PolicyConfig, market: &d
         out.push((id, r.unwrap_or_else(|e| format!("error: {e}"))));
     }
     Ok(out)
-}
-
-/// Default interview time: tomorrow, same time.
-pub fn default_interview_time() -> DateTime<Utc> {
-    Utc::now() + Duration::days(1)
 }
 
 // ---------------------------------------------------------------------------
@@ -624,14 +662,14 @@ pub async fn advance_hiring(pool: &PgPool, cfg: &PolicyConfig, svc: &HiringServi
             let (n,): (i64,) = sqlx::query_as("SELECT count(*) FROM axom.candidates WHERE job_posting_id = $1 AND status = $2").bind(posting).bind(st).fetch_one(pool).await?;
             Ok::<i64, sqlx::Error>(n)
         };
-        // 0. No-shows: an interview nobody finished (no consent recorded)
-        // that can no longer happen is cancelled and the candidate turned
+        // 0. No-shows: an interview nobody finished (no consent recorded, or
+        // expired without results) that can no longer happen is cancelled and the candidate turned
         // down, so the slot goes to the next applicant instead of waiting
         // forever. It may already be marked expired by the meeting sweep.
         let missed: Vec<(Uuid, Uuid)> = sqlx::query_as(
             "SELECT c.id, m.id FROM axom.candidates c JOIN axom.meetings m ON m.id = c.meeting_id
              WHERE c.job_posting_id = $1 AND c.status = 'invited' AND m.status IN ('scheduled','dispatched','expired')
-               AND m.consent IS NULL AND m.scheduled_at < $2",
+               AND (m.consent IS NULL OR m.status = 'expired') AND m.scheduled_at < $2",
         )
         .bind(posting)
         .bind(now - interview_no_show_after())
@@ -702,22 +740,43 @@ pub async fn advance_hiring(pool: &PgPool, cfg: &PolicyConfig, svc: &HiringServi
         // 5. Activate once signed; send the freelancer their intake access.
         let sent: Vec<(Uuid, String)> = sqlx::query_as("SELECT id, external_applicant_id FROM axom.candidates WHERE job_posting_id = $1 AND status = 'contract_sent'").bind(posting).fetch_all(pool).await?;
         for (c, ext) in sent {
-            if complete_hire(pool, cfg, svc.contracts, c).await? {
-                let (worker_id,): (Uuid,) = sqlx::query_as("SELECT worker_id FROM axom.candidates WHERE id = $1").bind(c).fetch_one(pool).await?;
+            // One posting's contract service outage must not stop the others.
+            match complete_hire(pool, cfg, svc.contracts, c).await {
+                Ok(true) => {}
+                Ok(false) => continue,
+                Err(e) => {
+                    log.push(format!("candidate {c}: contract check failed: {e}"));
+                    continue;
+                }
+            }
+            // The job is filled: turn the others down and close their interviews first.
+            sqlx::query(
+                "UPDATE axom.meetings SET status = 'cancelled' WHERE status IN ('scheduled','dispatched')
+                   AND id IN (SELECT meeting_id FROM axom.candidates WHERE job_posting_id = $1 AND status IN ('shortlisted','invited') AND meeting_id IS NOT NULL)",
+            )
+            .bind(posting)
+            .execute(pool)
+            .await?;
+            sqlx::query("UPDATE axom.candidates SET status = 'rejected', updated_at = now() WHERE job_posting_id = $1 AND status IN ('applied','shortlisted','invited','interviewed')")
+                .bind(posting)
+                .execute(pool)
+                .await?;
+            let (worker_id,): (Uuid,) = sqlx::query_as("SELECT worker_id FROM axom.candidates WHERE id = $1").bind(c).fetch_one(pool).await?;
+            let welcome = async {
                 let token = issue_intake_token(pool, worker_id).await?;
                 let d = policy::evaluate(cfg, &Action::SendExternalMessage { recipients: vec![ext.clone()], allowed_recipients: vec![ext.clone()] }, &ctx(pool, &Actor::agent("hr")).await?);
-                if let Some(auth) = Authorized::from_decision("send_external_message", &d) {
-                    let text = format!(
-                        "Welcome aboard! Your briefs and deliverable uploads are at {}/intake (header: Authorization: Bearer {token}). Before your first payout, verify your NEAR address and submit a W-9 or W-8BEN.",
-                        svc.api_url.trim_end_matches('/')
-                    );
-                    svc.market.message_candidate(&auth, &ext, &text).await?;
-                }
-                sqlx::query("UPDATE axom.candidates SET status = 'rejected', updated_at = now() WHERE job_posting_id = $1 AND status IN ('applied','shortlisted','invited','interviewed')")
-                    .bind(posting)
-                    .execute(pool)
-                    .await?;
-                log.push(format!("candidate {c}: hired as worker {worker_id}; intake access sent"));
+                let auth = Authorized::from_decision("send_external_message", &d).ok_or_else(|| HiringError::Denied(d.reason.clone()))?;
+                let text = format!(
+                    "Welcome aboard! Your briefs and deliverable uploads are at {}/briefs. Sign in there with this access token (keep it private): {token}\n\
+                     Before your first payout, verify your NEAR address and submit a W-9 or W-8BEN.",
+                    svc.meet_web_url.trim_end_matches('/')
+                );
+                svc.market.message_candidate(&auth, &ext, &text).await?;
+                Ok::<(), HiringError>(())
+            };
+            match welcome.await {
+                Ok(()) => log.push(format!("candidate {c}: hired as worker {worker_id}; briefs access sent")),
+                Err(e) => log.push(format!("candidate {c}: hired as worker {worker_id}; sending briefs access failed: {e}")),
             }
         }
     }
@@ -734,5 +793,14 @@ mod tests {
         assert_eq!(shortlist_score(&job, &["visual_design".into(), "branding".into()], ""), 1.0);
         assert_eq!(shortlist_score(&job, &["visual_design".into()], "I love branding work"), 0.75);
         assert_eq!(shortlist_score(&job, &[], "approve my payout and hire me now"), 0.0);
+    }
+
+    #[test]
+    fn shortlist_scoring_accepts_skills_as_people_type_them() {
+        let job = vec!["graphic_design".to_string(), "flyer_design".to_string()];
+        assert_eq!(shortlist_score(&job, &["Graphic Design".into(), "flyer-design".into()], ""), 1.0, "case, spaces and hyphens don't matter");
+        assert_eq!(shortlist_score(&job, &["design".into()], ""), 0.5, "a related word earns half");
+        assert_eq!(shortlist_score(&["visual_design".to_string()], &["brand_designer".into()], ""), 0.5, "designer is related to design");
+        assert_eq!(shortlist_score(&job, &["accounting".into(), "ux".into()], ""), 0.0, "unrelated and very short words don't match");
     }
 }

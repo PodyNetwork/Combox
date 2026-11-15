@@ -1,18 +1,22 @@
-// Company settings: the plan (if none yet), the NEAR treasury, links, and
-// the company's own stricter rules. The kill switch has its own page.
+// Company settings: the plan (if none yet), the NEAR treasury, links, the
+// company's own stricter rules, and treasury yield. The kill switch has its
+// own page.
 import { useCallback, useEffect, useState } from "react";
 import { platform } from "../api.js";
 import PlanForm from "../components/PlanForm.jsx";
-import { Badge, Button, CopyField, ErrorNote, Icon, Loading, PageHead, Panel, PanelHead, useApp, useCompanyApi, useLoad, usd, when } from "../ui.jsx";
+import { Badge, Button, CopyField, ErrorNote, Icon, Loading, PageHead, Panel, PanelHead, Toggle, useApp, useCompanyApi, useLoad, usd, when } from "../ui.jsx";
 
 export default function Settings() {
   const { platform: isPlatform, company } = useApp();
+  // One load for both panels below, so saving one never sends the other's stale values.
+  const policy = useLoad("/admin/policy");
   return (
     <>
       <PageHead kicker={isPlatform && company ? `${company.company.name} · ${company.role}` : "Company rules"} title="Settings" />
       <div className="space-y-4">
         {isPlatform && <CompanyDetails />}
-        <Rules />
+        <Rules policy={policy} />
+        <Yield policy={policy} />
         <KillPointer />
       </div>
     </>
@@ -124,10 +128,10 @@ function UnitInput({ label, value, onChange, prefix, suffix, hint, ...rest }) {
   );
 }
 
-function Rules() {
+function Rules({ policy }) {
   const { notify } = useApp();
   const call = useCompanyApi();
-  const { data, error, reload } = useLoad("/admin/policy");
+  const { data, error, reload } = policy;
   const [threshold, setThreshold] = useState(null);
   const [retention, setRetention] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -137,7 +141,7 @@ function Rules() {
     e.preventDefault();
     setBusy(true);
     try {
-      await call("/admin/policy", { method: "POST", body: { approval_threshold_usd: t === "" ? null : String(t), candidate_retention_days: r === "" ? null : Number(r) } });
+      await call("/admin/policy", { method: "POST", body: { approval_threshold_usd: t === "" ? null : String(t), candidate_retention_days: r === "" ? null : Number(r), treasury_yield_enabled: data.company.treasury_yield_enabled ?? null } });
       notify("Rules saved. The change is in the audit log.");
       setThreshold(null);
       setRetention(null);
@@ -201,6 +205,66 @@ function Rules() {
             {data.updated_at && <p className="font-mono text-xs text-dim">Changed {when(data.updated_at)} by {data.updated_by}</p>}
           </div>
         </form>
+      )}
+    </Panel>
+  );
+}
+
+// Treasury yield on Rhea lending: the company's own choice, on or off.
+// Shares /admin/policy with the rules above, so a change keeps those as stored.
+function Yield({ policy }) {
+  const { notify, navigate } = useApp();
+  const call = useCompanyApi();
+  const { data, error, reload } = policy;
+  const [busy, setBusy] = useState(false);
+  const on = !!data?.effective.treasury_yield_enabled;
+  const own = data?.company.treasury_yield_enabled != null;
+  const save = async (value) => {
+    setBusy(true);
+    try {
+      const c = data.company;
+      await call("/admin/policy", { method: "POST", body: { approval_threshold_usd: c.approval_threshold_usd ?? null, candidate_retention_days: c.candidate_retention_days ?? null, treasury_yield_enabled: value } });
+      notify(value == null ? "Treasury yield follows the platform default again." : value ? "Treasury yield is on. The signer supplies idle NEAR to Rhea on its next check." : "Treasury yield is off. The signer withdraws everything from Rhea.");
+      reload();
+    } catch (err) {
+      notify(err.message, "error");
+    }
+    setBusy(false);
+  };
+  return (
+    <Panel i={4} className="p-6 sm:p-8">
+      <PanelHead
+        eyebrow="Rhea Finance lending"
+        title="Treasury yield"
+        action={data && (own ? <Badge tone="lime">Company setting</Badge> : <Badge>Platform default</Badge>)}
+      />
+      <ErrorNote error={error} />
+      {!data && !error && <Loading rows={1} />}
+      {data && (
+        <>
+          <div className="flex items-start gap-4 rounded-2xl bg-white/3 p-4 ring-1 ring-white/10 sm:p-5">
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-medium">Earn on idle treasury NEAR</p>
+              <p className="mt-1 max-w-2xl text-sm text-mute">
+                NEAR that payroll can't spend this month (the monthly cap's headroom plus payouts owed stays liquid) is supplied to Rhea lending and withdrawn before payroll needs it.
+                Supply only: it never borrows, and funds only ever return to the treasury. Turning it off brings everything home.
+              </p>
+            </div>
+            <Toggle on={on} onChange={save} disabled={busy} label="Treasury yield" />
+          </div>
+          <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2 text-xs">
+            <span className={on ? "text-lime" : "text-mute"}>{on ? "On" : "Off"}</span>
+            <span className="text-dim">Platform default: {data.platform.treasury_yield_enabled ? "on" : "off"}</span>
+            {own && (
+              <button type="button" disabled={busy} onClick={() => save(null)} className="text-mute underline decoration-dotted underline-offset-4 hover:text-fog disabled:opacity-40">
+                Use the platform default
+              </button>
+            )}
+            <button type="button" onClick={() => navigate("overview")} className="ml-auto inline-flex items-center gap-1 text-mute hover:text-fog">
+              See it on the Overview <Icon name="arrow" size={12} />
+            </button>
+          </div>
+        </>
       )}
     </Panel>
   );

@@ -1,7 +1,9 @@
 //! Task intake: an internal queue inside axom-api.
 //!
 //! - Needs-based submission: `POST /intake/tasks` accepts a task with its
-//!   requirements and returns its queue position (internal token or admin).
+//!   requirements and an optional `start_at` (default: now), and returns its
+//!   queue position (internal token or admin). Work starts as soon as the
+//!   task is due: the company's loop is woken when it is queued.
 //! - Freelancer briefs: human workers see their briefs at `GET /intake/briefs`
 //!   and submit deliverables at `POST /intake/briefs/{task_id}/deliverables`
 //!   (per-worker bearer token). Deliverables are untrusted data.
@@ -13,14 +15,14 @@
 use async_trait::async_trait;
 use axom_core::audit::{self, AuditEvent};
 use axom_core::db::{self, TaskPlacement};
-use axom_core::domain::{Actor, Capabilities, Task};
+use axom_core::domain::{Actor, Capabilities, Task, WorkerKind};
 use axom_core::state::TaskStatus;
 use axom_tools::{Authorized, IntakeTask, TaskIntake, ToolError, ToolResult};
 use axum::extract::{Path, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::Json;
-use chrono::{NaiveDate, Utc};
+use chrono::{DateTime, NaiveDate, Utc};
 use rust_decimal::Decimal;
 use serde::Deserialize;
 use serde_json::json;
@@ -124,7 +126,16 @@ pub struct NewTask {
     pub priority: i32,
     #[serde(default)]
     pub deadline: Option<NaiveDate>,
+    /// When work may start (RFC 3339). Missing or past: now.
+    #[serde(default)]
+    pub start_at: Option<DateTime<Utc>>,
+    /// "ai_agent", "human_freelancer", or missing/"auto" to let Combox decide.
+    #[serde(default)]
+    pub worker_kind: Option<String>,
 }
+
+/// How far ahead a task can be scheduled.
+const MAX_SCHEDULE_DAYS: i64 = 365;
 
 fn default_priority() -> i32 {
     3
@@ -161,6 +172,25 @@ pub async fn submit_task(State(s): State<AppState>, headers: HeaderMap, Json(bod
     {
         return reply(StatusCode::BAD_REQUEST, json!({ "error": "objective 1-2000 chars, priority 1-5, at most 20 skills and 20 tools (each 1-100 chars)" }));
     }
+    let worker_kind = match body.worker_kind.as_deref().map(str::trim) {
+        None | Some("") | Some("auto") => None,
+        Some(k) => match k.parse::<WorkerKind>() {
+            Ok(k) => Some(k),
+            Err(_) => return reply(StatusCode::BAD_REQUEST, json!({ "error": "worker_kind must be auto, ai_agent, or human_freelancer" })),
+        },
+    };
+    if worker_kind == Some(WorkerKind::HumanFreelancer) && !body.required_tools.is_empty() {
+        return reply(StatusCode::BAD_REQUEST, json!({ "error": "a human can't be given a task that needs tools; remove the tools or choose AI" }));
+    }
+    if worker_kind == Some(WorkerKind::HumanFreelancer) && body.required_skills.is_empty() {
+        return reply(StatusCode::BAD_REQUEST, json!({ "error": "add the skills a human needs for this task, so the right freelancer can be found" }));
+    }
+    let now = Utc::now();
+    // A start time in the past means now.
+    let start_at = body.start_at.filter(|t| *t > now);
+    if start_at.is_some_and(|t| t > now + chrono::Duration::days(MAX_SCHEDULE_DAYS)) {
+        return reply(StatusCode::BAD_REQUEST, json!({ "error": format!("start_at can be at most {MAX_SCHEDULE_DAYS} days ahead") }));
+    }
     // A task that needs tools can lead to an AI worker being hired with them
     // (when no planned role covers it), so only tools that exist and are
     // switched on may be asked for.
@@ -182,11 +212,13 @@ pub async fn submit_task(State(s): State<AppState>, headers: HeaderMap, Json(bod
         status: TaskStatus::Queued,
         result: None,
         cost_usd: Decimal::ZERO,
+        start_at,
+        worker_kind,
     };
     let result = async {
         db::insert_task(&s.pool, &task, &TaskPlacement::default()).await?;
         let ev = AuditEvent::new(&actor, "intake.submit", "queued")
-            .inputs(json!({ "task_id": task.id, "objective": task.objective, "required_skills": body.required_skills, "required_tools": body.required_tools, "priority": task.priority }));
+            .inputs(json!({ "task_id": task.id, "objective": task.objective, "required_skills": body.required_skills, "required_tools": body.required_tools, "priority": task.priority, "start_at": start_at, "worker_kind": worker_kind }));
         audit::append(&s.pool, &ev).await?;
         let (pos,): (i64,) = sqlx::query_as(
             "SELECT count(*) FROM axom.tasks t, axom.tasks me WHERE me.id = $1 AND t.status = 'queued'
@@ -199,7 +231,7 @@ pub async fn submit_task(State(s): State<AppState>, headers: HeaderMap, Json(bod
     }
     .await;
     match result {
-        Ok(pos) => reply(StatusCode::CREATED, json!({ "task_id": task.id, "queue_position": pos })),
+        Ok(pos) => reply(StatusCode::CREATED, json!({ "task_id": task.id, "queue_position": pos, "start_at": start_at.unwrap_or(now), "scheduled": start_at.is_some() })),
         Err(e) => crate::ApiError(e.to_string()).into_response(),
     }
 }

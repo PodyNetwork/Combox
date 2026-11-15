@@ -86,6 +86,7 @@ async fn assigned_task(pool: &PgPool, worker: Uuid, tool: &str) -> Uuid {
         status: TaskStatus::Queued,
         result: None,
         cost_usd: Decimal::ZERO,
+        start_at: None, worker_kind: None,
     };
     db::insert_task(pool, &task, &Default::default()).await.unwrap();
     // Assigned directly (routing is tested elsewhere).

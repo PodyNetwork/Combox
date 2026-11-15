@@ -25,7 +25,7 @@ const WEEK = ["M", "T", "W", "T", "F", "S", "S"];
 const GAP = 6;
 const EDGE = 8;
 
-export default function DateTimePicker({ label, value, onChange, time = true, allowPast = false, placeholder, hint }) {
+export default function DateTimePicker({ label, value, onChange, time = true, allowPast = false, todayIsNow = false, placeholder, hint }) {
   const labelId = useId();
   const [open, setOpen] = useState(false);
   const selected = parse(value);
@@ -84,6 +84,7 @@ export default function DateTimePicker({ label, value, onChange, time = true, al
   }, [open]);
 
   // The next free 15-minute slot today, so "today" never lands in the past.
+  // With `todayIsNow` (a task's start), today means right now instead.
   const nextSlot = () => {
     const n = new Date();
     const mins = Math.ceil((n.getHours() * 60 + n.getMinutes() + 1) / 15) * 15;
@@ -91,7 +92,7 @@ export default function DateTimePicker({ label, value, onChange, time = true, al
   };
   const emit = (d, t = hhmm) => {
     let at = t;
-    if (!allowPast && sameDay(d, today) && at <= nowHHMM()) at = nextSlot();
+    if (!allowPast && sameDay(d, today) && at <= nowHHMM()) at = todayIsNow ? nowHHMM() : nextSlot();
     onChange(time ? `${toDateStr(d)}T${at}` : toDateStr(d));
   };
   const pickDay = (d) => {
@@ -207,7 +208,17 @@ export default function DateTimePicker({ label, value, onChange, time = true, al
               <button type="button" onClick={goToday} className="text-[11px] font-medium text-lime hover:underline">
                 Today
               </button>
-              {time && <span className="ml-auto truncate text-[10px] text-dim" title="Your time zone">{tz}</span>}
+              {time && (
+                // Any exact time, typed; the list beside it has 15-minute slots.
+                <input
+                  type="time"
+                  aria-label="Time"
+                  title={`Type an exact time (your time zone: ${tz})`}
+                  value={selected ? hhmm : ""}
+                  onChange={(e) => e.target.value && emit(selected || today, e.target.value)}
+                  className="num ml-auto rounded-md border border-white/10 bg-black/40 px-1.5 py-0.5 text-xs text-fog [color-scheme:dark] focus:border-lime/60 focus:outline-none"
+                />
+              )}
             </div>
           </div>
 

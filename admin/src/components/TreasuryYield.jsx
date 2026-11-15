@@ -1,7 +1,9 @@
 // Treasury yield on Rhea lending: how much of the treasury is earning, how
 // much stays liquid for payroll and why, and every move the signer made.
-// Read-only: the signer decides and moves by the policy's rules alone.
-import { Badge, ErrorNote, Icon, Loading, Panel, PanelHead, ago, human, useLoad } from "../ui.jsx";
+// The switch turns it on or off (also in Settings); the signer decides and
+// moves by the policy's rules alone.
+import { useState } from "react";
+import { Badge, ErrorNote, Icon, Loading, Panel, PanelHead, Toggle, ago, human, useApp, useCompanyApi, useLoad } from "../ui.jsx";
 
 // yocto string -> NEAR number (display only).
 const nearOf = (y) => (y == null ? null : Number(BigInt(y) / 10n ** 20n) / 1e4);
@@ -11,7 +13,26 @@ const MOVE_TONE = { succeeded: "lime", submitted: "sky", failed: "ember" };
 const KIND = { register: "Registered on Rhea", supply: "Supplied", withdraw: "Withdrew", unwrap: "Unwrapped" };
 
 export function TreasuryYieldCard({ i = 0, className = "" }) {
-  const { data, error } = useLoad("/admin/treasury/yield", { poll: 60000 });
+  const { navigate, notify } = useApp();
+  const call = useCompanyApi();
+  const { data, error, reload } = useLoad("/admin/treasury/yield", { poll: 60000 });
+  const policy = useLoad("/admin/policy");
+  const [busy, setBusy] = useState(false);
+  // Saves only the yield choice; the company's other rules stay as stored.
+  const toggle = async (on) => {
+    const c = policy.data?.company;
+    if (!c) return;
+    setBusy(true);
+    try {
+      await call("/admin/policy", { method: "POST", body: { approval_threshold_usd: c.approval_threshold_usd ?? null, candidate_retention_days: c.candidate_retention_days ?? null, treasury_yield_enabled: on } });
+      notify(on ? "Treasury yield is on. The signer supplies idle NEAR to Rhea within a minute." : "Treasury yield is off. The signer withdraws everything from Rhea.");
+      reload();
+      policy.reload();
+    } catch (err) {
+      notify(err.message, "error");
+    }
+    setBusy(false);
+  };
   const plan = data?.plan;
   const pos = plan?.position;
   const liquid = nearOf(pos?.liquid_yocto);
@@ -24,7 +45,12 @@ export function TreasuryYieldCard({ i = 0, className = "" }) {
       <PanelHead
         eyebrow="Rhea Finance lending"
         title="Treasury yield"
-        action={data && <Badge tone={data.enabled ? "lime" : "mute"} dot={data.enabled}>{data.enabled ? "On" : "Off"}</Badge>}
+        action={data && (
+          <span className="flex items-center gap-2 text-xs text-mute">
+            {data.enabled ? "On" : "Off"}
+            <Toggle on={data.enabled} onChange={toggle} disabled={busy || !policy.data} label="Treasury yield" small />
+          </span>
+        )}
       />
       <ErrorNote error={error} />
       {!data && !error && <Loading rows={2} />}
@@ -32,7 +58,7 @@ export function TreasuryYieldCard({ i = 0, className = "" }) {
         <p className="text-sm text-mute">
           {data.enabled
             ? "Waiting for the signer's first check of the treasury."
-            : "Off. With treasury yield on, NEAR the monthly cap can't spend this month is supplied to Rhea lending and pulled back before payroll needs it."}
+            : "Off. Turn it on and NEAR the monthly cap can't spend this month is supplied to Rhea lending and pulled back before payroll needs it."}
         </p>
       )}
       {plan && (
@@ -80,9 +106,14 @@ export function TreasuryYieldCard({ i = 0, className = "" }) {
         </ul>
       )}
       {data && (
-        <p className="mt-auto pt-4 font-mono text-[10px] text-dim" title={data.lending_contract}>
-          supply only · never borrows · funds only return to the treasury
-        </p>
+        <div className="mt-auto flex flex-wrap items-center gap-x-3 gap-y-1 pt-4">
+          <p className="mr-auto font-mono text-[10px] text-dim" title={data.lending_contract}>
+            supply only · never borrows · funds only return to the treasury
+          </p>
+          <button type="button" onClick={() => navigate("settings")} className="inline-flex items-center gap-1 text-xs text-mute hover:text-fog">
+            Settings <Icon name="arrow" size={12} />
+          </button>
+        </div>
       )}
     </Panel>
   );

@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "Combox AI interviewer for self-hosted LiveKit"
 requires-python = ">=3.11"
 dependencies = [
-  "livekit-agents[deepgram,silero]==1.8.11",
+  "livekit-agents[deepgram]==1.8.11",
   "anthropic==1.17.0",
 ]
 

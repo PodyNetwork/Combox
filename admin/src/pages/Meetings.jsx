@@ -7,7 +7,9 @@ import {
   human, useApp, useCompanyApi, useLoad, when,
 } from "../ui.jsx";
 
-const DEFAULT_INSTRUCTIONS = "Introduce yourself as an AI. Ask for recording consent before any question. Do not discuss pay.";
+// The role, for the AI to write its questions from. The AI disclosure,
+// consent, and no-pay rules are built into the interviewer.
+const DEFAULT_INSTRUCTIONS = "";
 const safeHref = (u) => (/^https?:\/\//i.test(u || "") ? u : undefined);
 
 export default function Meetings() {
@@ -159,15 +161,18 @@ function Detail({ id, links, onDispatch }) {
 
       {m.status === "scheduled" && (
         <div className="mt-6 flex flex-wrap items-center gap-3 rounded-2xl bg-violet/10 p-4 ring-1 ring-violet/25">
-          <span className="text-sm">The room is ready. Dispatch the AI interviewer with instructions and questions.</span>
-          <Button size="sm" className="ml-auto" onClick={() => onDispatch(m)}>Dispatch agent</Button>
+          <span className="text-sm">The room is ready. The AI interviewer joins as soon as anyone joins and writes its own questions. Brief it about the role, or add your own questions (optional).</span>
+          <Button size="sm" className="ml-auto" onClick={() => onDispatch(m)}>Brief interviewer</Button>
         </div>
       )}
 
       {m.status === "dispatched" && !m.dispatched_at && (
         <div className="mt-6 flex flex-wrap items-center gap-3 rounded-2xl bg-violet/10 p-4 ring-1 ring-violet/25">
-          <span className="text-sm">The AI interviewer joins when the applicant does, with {m.questions?.length || 0} question{m.questions?.length === 1 ? "" : "s"}. You can change them until then.</span>
-          <Button size="sm" variant="ghost" className="ml-auto" onClick={() => onDispatch(m)}>Edit questions</Button>
+          <span className="text-sm">
+            The AI interviewer joins as soon as anyone joins, you or the applicant, and writes its questions from the role
+            {m.questions?.length ? `, after your ${m.questions.length} question${m.questions.length === 1 ? "" : "s"}` : ""}. You can change the brief until then.
+          </span>
+          <Button size="sm" variant="ghost" className="ml-auto" onClick={() => onDispatch(m)}>Edit brief</Button>
         </div>
       )}
 
@@ -317,11 +322,19 @@ function Wizard({ state, setState, onDone, onCreated, links }) {
   const [title, setTitle] = useState("");
   const [at, setAt] = useState("");
   const [invitees, setInvitees] = useState("");
-  // Editing an interview that already has questions starts from them.
-  const [instructions, setInstructions] = useState(state.instructions || DEFAULT_INSTRUCTIONS);
-  const [questions, setQuestions] = useState(state.questions?.length ? state.questions : ["", ""]);
+  const [instructions, setInstructions] = useState(DEFAULT_INSTRUCTIONS);
+  // The owner's own questions are optional: the AI writes its own.
+  const [questions, setQuestions] = useState([]);
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
+  // The wizard stays mounted while closed (state is null), so "Edit brief"
+  // loads the interview's current brief when it opens.
+  const editing = state?.step === 2 && !state.created ? state.meetingId : null;
+  useEffect(() => {
+    if (!editing) return;
+    setInstructions(state.instructions || DEFAULT_INSTRUCTIONS);
+    setQuestions(state.questions?.length ? state.questions : []);
+  }, [editing]); // eslint-disable-line react-hooks/exhaustive-deps
   if (!state) return null;
   // Each new interview starts from a clean form.
   const close = () => {
@@ -331,7 +344,7 @@ function Wizard({ state, setState, onDone, onCreated, links }) {
     setAt("");
     setInvitees("");
     setInstructions(DEFAULT_INSTRUCTIONS);
-    setQuestions(["", ""]);
+    setQuestions([]);
   };
 
   const create = async (e) => {
@@ -357,7 +370,7 @@ function Wizard({ state, setState, onDone, onCreated, links }) {
     setError(null);
     try {
       await call(`/admin/meetings/${state.meetingId}/dispatch`, { method: "POST", body: { instructions, questions: questions.map((q) => q.trim()).filter(Boolean) } });
-      notify("Interviewer dispatched");
+      notify("Interviewer briefed");
       onDone();
       close();
     } catch (err) {
@@ -402,11 +415,14 @@ function Wizard({ state, setState, onDone, onCreated, links }) {
           )}
           <div className="flex flex-wrap items-baseline gap-2">
             <p className="mr-auto text-sm text-mute">AI interviewer for <span className="text-fog">{state.title}</span></p>
-            {state.created && <span className="text-xs text-dim">Default questions are already set; replace them here or later from the interview page.</span>}
           </div>
-          <Textarea label="Instructions" value={instructions} onChange={setInstructions} rows={3} maxLength={4000} />
+          <p className="rounded-2xl bg-violet/10 px-4 py-3 text-xs text-mute ring-1 ring-violet/25">
+            The AI writes the interview questions itself from the role described below, and joins as soon as anyone joins the room. Your own questions are optional; any you add are asked first.
+            {state.created && " Nothing else to do: you can close this now."}
+          </p>
+          <Textarea label="About the role" value={instructions} onChange={setInstructions} rows={3} maxLength={4000} placeholder="e.g. Senior backend engineer for our payments API: Rust, Postgres, on-call experience." hint="What the job is and what matters for it. The AI writes its questions from this and the meeting title." />
           <div>
-            <span className="text-sm text-mute" id="questions-label">Questions</span>
+            <span className="text-sm text-mute" id="questions-label">Your own questions <span className="text-dim">(optional)</span></span>
             <ol className="mt-1.5 space-y-2" aria-labelledby="questions-label">
               {questions.map((q, i) => (
                 <li key={i} className="flex items-center gap-2">
@@ -426,13 +442,13 @@ function Wizard({ state, setState, onDone, onCreated, links }) {
               ))}
             </ol>
             {questions.length < 20 && (
-              <Button type="button" variant="link" size="sm" className="mt-2 ml-8" onClick={() => setQuestions([...questions, ""])}>+ Add question</Button>
+              <Button type="button" variant="link" size="sm" className={`mt-2 ${questions.length ? "ml-8" : ""}`} onClick={() => setQuestions([...questions, ""])}>+ Add your own question</Button>
             )}
           </div>
           <ErrorNote error={error} />
           <div className="grid grid-cols-2 gap-3 pt-2">
             <Button type="button" variant="ghost" onClick={close}>{state.created ? "Done" : "Cancel"}</Button>
-            <Button type="submit" disabled={busy || !questions.some((q) => q.trim())}>{busy ? "Dispatching…" : "Dispatch"}</Button>
+            <Button type="submit" disabled={busy}>{busy ? "Saving…" : "Save brief"}</Button>
           </div>
           <p className="text-center text-xs text-dim">Policy-checked. The agent always discloses it is an AI and asks for consent first.</p>
         </form>

@@ -45,9 +45,11 @@ pub struct Runtime {
 }
 
 impl Runtime {
-    /// Loop every 15 seconds: route and run tasks every minute (with the
-    /// MCP servers and webhooks the company connected); hiring, tax sync, and
-    /// retention hourly; reviews, approvals expiry, and notifications each tick.
+    /// Loop every 15 seconds. Tasks are picked up as soon as they are due: a
+    /// new or requeued task wakes the loop at once (Postgres `NOTIFY` on
+    /// `axom_tasks`), a scheduled task wakes it at its `start_at`, and every
+    /// minute catches anything missed. Hiring, tax sync, and retention run
+    /// hourly; reviews, approvals expiry, and notifications each tick.
     pub async fn run(self) {
         let label = self.label.clone();
         let pool = &self.pool;
@@ -106,47 +108,59 @@ impl Runtime {
         let organizer = cfg.get("SMTP_FROM").unwrap_or_else(|| "combox@localhost".into());
         let mut last_payroll: Option<Instant> = None;
         let mut last_hiring: Option<Instant> = None;
+        let mut last_pipeline: Option<Instant> = None;
+        // Applicants are shortlisted and invited every minute on Combox's own
+        // jobs board (a local database, so it is cheap); hourly on others.
+        let pipeline_every = Duration::from_secs(if market.name() == axom_hr::board::MARKETPLACE { 60 } else { 3600 });
         let mut last_digest = chrono::Utc::now();
+        let brain = brain.as_ref().map(|b| b as &dyn axom_tools::llm::Llm);
+        // New and requeued tasks wake the loop right away. Without the
+        // listener, tasks are still picked up on the minute.
+        let mut listener = match task_listener(pool).await {
+            Ok(l) => Some(l),
+            Err(e) => {
+                tracing::warn!(company = %label, error = %e, "cannot listen for new tasks; picking them up every minute instead");
+                None
+            }
+        };
         let mut tick = tokio::time::interval(Duration::from_secs(15));
         loop {
-            tick.tick().await;
-            let now = chrono::Utc::now();
+            // A scheduled task wakes the loop at its start time.
+            let next_start = axom_core::db::next_task_start(pool).await.unwrap_or_else(|e| {
+                tracing::error!(company = %label, error = %e, "reading the next task start failed");
+                None
+            });
+            let woken = tokio::select! {
+                _ = tick.tick() => false,
+                _ = task_ready(&mut listener, &label) => true,
+                _ = sleep_until(next_start) => true,
+            };
             // The platform's policy with this company's stricter rules (lower
-            // approval threshold, shorter retention), re-read every tick.
+            // approval threshold, shorter retention), re-read every pass.
             let effective = axom_hr::company_policy::effective(&self.policy, pool).await;
             let policy = &effective;
+            if woken {
+                // Only the task pass: the rest keeps its own schedule.
+                last_tasks = Some(Instant::now());
+                task_pass(&label, pool, policy, market.as_ref(), &tools, &intake, brain).await;
+                continue;
+            }
+            let now = chrono::Utc::now();
             if last_tasks.is_none_or(|t| t.elapsed() >= Duration::from_secs(60)) {
                 last_tasks = Some(Instant::now());
-                match routing::route_queued(pool, &Actor::System).await {
-                    Ok(r) if !r.assigned.is_empty() || !r.hiring_requests.is_empty() => {
-                        tracing::info!(company = %label, assigned = r.assigned.len(), hiring_requests = r.hiring_requests.len(), "routed tasks")
-                    }
-                    Ok(_) => {}
-                    Err(e) => tracing::error!(company = %label, error = %e, "routing failed"),
-                }
-                match runner::run_assigned_with(pool, policy, &tools, &intake, brain.as_ref().map(|b| b as &dyn axom_tools::llm::Llm)).await {
-                    Ok(r) if !(r.done.is_empty() && r.sent_to_intake.is_empty() && r.blocked.is_empty() && r.failed.is_empty()) => {
-                        tracing::info!(company = %label, done = r.done.len(), intake = r.sent_to_intake.len(), blocked = r.blocked.len(), failed = r.failed.len(), "tasks run")
-                    }
-                    Ok(_) => {}
-                    Err(e) => tracing::error!(company = %label, error = %e, "task run failed"),
-                }
+                task_pass(&label, pool, policy, market.as_ref(), &tools, &intake, brain).await;
             }
             if last_hiring.is_none_or(|t| t.elapsed() >= Duration::from_secs(3600)) {
                 last_hiring = Some(Instant::now());
                 match axom_hr::hiring::process_open_requests(pool, policy, market.as_ref()).await {
-                    Ok(done) if !done.is_empty() => tracing::info!(company = %label, ?done, "hiring requests processed"),
+                    Ok(done) if !done.is_empty() => {
+                        tracing::info!(company = %label, ?done, "hiring requests processed");
+                        // New hires start on their tasks now, not on the next minute.
+                        task_pass(&label, pool, policy, market.as_ref(), &tools, &intake, brain).await;
+                    }
                     Ok(_) => {}
                     Err(e) => tracing::error!(company = %label, error = %e, "hiring failed"),
                 }
-                let hsvc = axom_hr::hiring::HiringServices {
-                    market: market.as_ref(),
-                    rooms: rooms.as_ref(),
-                    contracts: contracts.as_ref(),
-                    notify: &self.notify,
-                    api_url: &self.api_url,
-                    meet_web_url: &self.meet_web_url,
-                };
                 match axom_hr::gates::sync_missing_tax_forms(pool, contracts.as_ref()).await {
                     Ok(n) if n > 0 => tracing::info!(company = %label, recorded = n, "tax forms synced from DocuSeal"),
                     Ok(_) => {}
@@ -157,6 +171,17 @@ impl Runtime {
                     Ok(_) => {}
                     Err(e) => tracing::error!(company = %label, error = %e, "retention purge failed"),
                 }
+            }
+            if last_pipeline.is_none_or(|t| t.elapsed() >= pipeline_every) {
+                last_pipeline = Some(Instant::now());
+                let hsvc = axom_hr::hiring::HiringServices {
+                    market: market.as_ref(),
+                    rooms: rooms.as_ref(),
+                    contracts: contracts.as_ref(),
+                    notify: &self.notify,
+                    api_url: &self.api_url,
+                    meet_web_url: &self.meet_web_url,
+                };
                 match axom_hr::hiring::advance_hiring(pool, policy, &hsvc, now).await {
                     Ok(log) if !log.is_empty() => tracing::info!(company = %label, ?log, "hiring pipeline advanced"),
                     Ok(_) => {}
@@ -245,5 +270,94 @@ impl Runtime {
                 }
             }
         }
+    }
+}
+
+/// Pick up work: route every due task, hire at once for any that no worker
+/// covers (an AI agent straight away, or a freelancer job posting), route
+/// again so a new AI hire gets its task, then run everything assigned.
+async fn task_pass(
+    label: &str,
+    pool: &PgPool,
+    policy: &axom_hr::PolicyConfig,
+    market: &dyn axom_tools::FreelanceMarketplace,
+    tools: &dyn axom_tools::ToolExecutor,
+    intake: &dyn axom_tools::TaskIntake,
+    brain: Option<&dyn axom_tools::llm::Llm>,
+) {
+    let route = || async {
+        match routing::route_queued(pool, &Actor::System).await {
+            Ok(r) => {
+                if !r.assigned.is_empty() || !r.hiring_requests.is_empty() {
+                    tracing::info!(company = %label, assigned = r.assigned.len(), hiring_requests = r.hiring_requests.len(), "routed tasks");
+                }
+                r.hiring_requests.len()
+            }
+            Err(e) => {
+                tracing::error!(company = %label, error = %e, "routing failed");
+                0
+            }
+        }
+    };
+    // Act on new hiring requests now (an AI agent hired, or a freelancer job
+    // posted to Hiring and the jobs board), not on the hourly pass: both the
+    // ones routing opens and the ones a worker raises while running a task
+    // (an AI worker asking HR to hire). Returns whether anything was done.
+    let hire = || async {
+        match axom_hr::hiring::process_open_requests(pool, policy, market).await {
+            Ok(done) if !done.is_empty() => {
+                tracing::info!(company = %label, ?done, "hiring requests processed");
+                true
+            }
+            Ok(_) => false,
+            Err(e) => {
+                tracing::error!(company = %label, error = %e, "hiring failed");
+                false
+            }
+        }
+    };
+    if route().await > 0 && hire().await {
+        route().await;
+    }
+    match runner::run_assigned_with(pool, policy, tools, intake, brain).await {
+        Ok(r) if !(r.done.is_empty() && r.sent_to_intake.is_empty() && r.blocked.is_empty() && r.failed.is_empty()) => {
+            tracing::info!(company = %label, done = r.done.len(), intake = r.sent_to_intake.len(), blocked = r.blocked.len(), failed = r.failed.len(), "tasks run");
+            if hire().await {
+                route().await;
+            }
+        }
+        Ok(_) => {}
+        Err(e) => tracing::error!(company = %label, error = %e, "task run failed"),
+    }
+}
+
+/// Channel the `tasks_notify_ready` trigger posts to when a task is queued.
+const TASKS_CHANNEL: &str = "axom_tasks";
+
+async fn task_listener(pool: &PgPool) -> Result<sqlx::postgres::PgListener, sqlx::Error> {
+    let mut l = sqlx::postgres::PgListener::connect_with(pool).await?;
+    l.listen(TASKS_CHANNEL).await?;
+    Ok(l)
+}
+
+/// Resolves when a task has been queued. Several at once count as one
+/// wake-up. Never resolves without a listener.
+async fn task_ready(listener: &mut Option<sqlx::postgres::PgListener>, label: &str) {
+    let Some(l) = listener else { return std::future::pending().await };
+    match l.recv().await {
+        Ok(_) => while l.next_buffered().is_some() {},
+        Err(e) => {
+            // The listener reconnects on the next call; don't spin meanwhile.
+            tracing::warn!(company = %label, error = %e, "task listener lost its connection");
+            tokio::time::sleep(Duration::from_secs(5)).await;
+        }
+    }
+}
+
+/// Resolves at `at` (at once if it has passed); never without a time.
+async fn sleep_until(at: Option<chrono::DateTime<chrono::Utc>>) {
+    match at {
+        Some(at) => tokio::time::sleep((at - chrono::Utc::now()).to_std().unwrap_or_default()).await,
+        None => std::future::pending().await,
     }
 }

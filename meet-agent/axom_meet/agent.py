@@ -13,73 +13,235 @@ keys the company has not set come from this agent's environment.
 Interviews are timed: the agent waits for the candidate only until the join
 link expires, and ends the interview at `max_duration_secs` (15 minutes, sent by Combox).
 
+Speed: the agent is sent when the join page opens, so it loads the
+company's keys, starts its session (voice connections, audio track),
+records its opening line and starts writing the questions while the person
+is still in the lobby; it speaks the moment they enter. Its voice is buffered (`playback`) so a busy machine
+does not break it up.
+
+Questions: Claude writes the interview questions from the role
+(`interview.plan_questions`), from the moment the agent arrives; the owner's
+own questions, if any, come first. Follow-ups come from a fast model with a
+hard time cap (`ClaudeLLM(fast=True)`), so an answer is never met with a long
+silence.
+
+Presence (DECISIONS M6-14): Combox sends the agent whenever someone joins
+an open meeting and it is not in the room. While the call runs, the agent
+follows whoever is still in the room when the person it was talking to
+leaves, and welcomes people back after a dropped connection.
+
+Ending the call ends it for everyone: when the interview is over (all
+questions asked, time up, consent declined, or the participant asks to end
+it) the agent says goodbye, closes its session and deletes the room, which
+disconnects the participant. The same happens when the last person in the
+room leaves (the Leave button), or when the room has stayed empty for
+`EMPTY_ROOM_GRACE_SECS` after a dropped connection. Either way Combox gets
+the outcome before the job exits (results, or "no consent"), and Combox
+then expires the meeting's join links.
+
 The LLM never drives the conversation: every spoken line comes from
-`Interview`, and the LLM only proposes follow-up questions (filtered by
-guards) and writes the summary and scores.
+`Interview`, and the LLM only writes questions and follow-ups (filtered by
+guards) and the summary and scores.
 """
 
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import logging
 import os
+import time
 
-from livekit.agents import Agent, AgentSession, JobContext, StopResponse, WorkerOptions, cli
-from livekit.plugins import silero
+from livekit import rtc
+from livekit.agents import Agent, AgentSession, JobContext, JobProcess, StopResponse, WorkerOptions, cli, room_io
 
 from .callback import fetch_keys, post_event
-from .interview import Interview, Job
+from .interview import CLOSING, DECLINED, REASK, Interview, Job, plan_questions
+from .playback import presynthesize, ready_audio, replay, use_audio_buffer
 from .voice import build_stt, build_tts, tts_provider
 
 log = logging.getLogger("axom-meet")
 AGENT_NAME = "axom-interviewer"
+# Time the job gets after the call ends to write the summary and post it.
+REPORT_TIMEOUT_SECS = 120
+# How long the agent waits in an empty room for someone whose connection
+# dropped to come back before it ends the call.
+EMPTY_ROOM_GRACE_SECS = 120
+# Said the moment an answer ends while the follow-up is being decided, so
+# the participant never waits in silence (rotated; audio made in advance).
+ACKNOWLEDGEMENTS = ("Thank you.", "Got it.", "Okay, thanks.", "Thanks for that.")
+# How long the consent answer may wait for the questions being written
+# (they are usually ready long before); past it, the fallback ones are asked.
+QUESTIONS_WAIT_SECS = 8
+# Longest a follow-up may take to write; past it, the next question is asked.
+FOLLOW_UP_TIMEOUT_SECS = 4.0
+# Longest the company's keys may take to load; past it, the agent's own are used.
+KEYS_TIMEOUT_SECS = 5.0
+# The worker takes interviews until the machine is this busy (LiveKit's
+# default, 0.7, turned calls away on a shared server and left people waiting).
+LOAD_THRESHOLD = 0.9
+# Worker processes kept loaded and ready for the next call. Each holds the
+# speech models (~150 MB); one is enough, since another loads as soon as it
+# is taken (LiveKit's default of up to 4 starved small machines of memory).
+IDLE_PROCESSES = int(os.environ.get("AXOM_MEET_IDLE_PROCESSES", "1"))
+# Attempts to report an event to Combox before giving up.
+CALLBACK_ATTEMPTS = 3
+# Leaving on purpose (the Leave button, or the room being deleted), as
+# opposed to a dropped connection.
+LEFT_ON_PURPOSE = {rtc.DisconnectReason.CLIENT_INITIATED, rtc.DisconnectReason.ROOM_DELETED, rtc.DisconnectReason.USER_REJECTED}
 
 
 class ClaudeLLM:
-    """Minimal synchronous completion client for follow-ups and summaries."""
+    """Minimal synchronous completion client for questions, follow-ups and summaries.
 
-    def __init__(self, api_key: str | None = None, model: str | None = None) -> None:
+    `fast=True` is for follow-ups, which the participant waits on in silence:
+    a fast model (AXOM_MEET_FAST_MODEL), low effort, a short reply, and a hard
+    time cap with no retries. Past the cap the interview moves to the next
+    question instead of making the participant wait.
+    """
+
+    def __init__(self, api_key: str | None = None, model: str | None = None, *, fast: bool = False, effort: str | None = None) -> None:
         import anthropic
 
-        self.client = anthropic.Anthropic(api_key=api_key)
-        self.model = model or os.environ.get("AXOM_MEET_LLM_MODEL", "claude-sonnet-5-5")
+        client = anthropic.Anthropic(api_key=api_key)
+        self.fast = fast
+        if fast:
+            self.client = client.with_options(timeout=FOLLOW_UP_TIMEOUT_SECS, max_retries=0)
+            self.model = os.environ.get("AXOM_MEET_FAST_MODEL", "claude-haiku-5-5")
+        else:
+            self.client = client
+            self.model = model or os.environ.get("AXOM_MEET_LLM_MODEL", "claude-sonnet-5-5")
+        self.effort = effort
 
     def complete(self, system: str, prompt: str) -> str:
-        msg = self.client.messages.create(model=self.model, max_tokens=800, system=system, messages=[{"role": "user", "content": prompt}])
+        # Thinking counts toward max_tokens: leave room so JSON replies are never cut off.
+        opts = {"max_tokens": 300, "output_config": {"effort": "low"}} if self.fast else {"max_tokens": 4000}
+        if self.effort and not self.fast:
+            opts["output_config"] = {"effort": self.effort}
+        msg = self.client.messages.create(model=self.model, system=system, messages=[{"role": "user", "content": prompt}], **opts)
         return "".join(getattr(b, "text", "") for b in msg.content)
 
 
+def post_with_retry(job: Job, event: dict) -> bool:
+    """Post an event to Combox, retrying briefly. A failure is logged, never
+    raised: it must not keep the call open (Combox's expiry sweep closes a
+    meeting that never reports)."""
+    for attempt in range(1, CALLBACK_ATTEMPTS + 1):
+        try:
+            post_event(job.callback_url, job.callback_token, event)
+            return True
+        except Exception as e:  # noqa: BLE001
+            log.warning("meeting %s: posting %s failed (attempt %s): %s", job.meeting_id, event.get("event"), attempt, e)
+            if attempt < CALLBACK_ATTEMPTS:
+                time.sleep(attempt)
+    return False
+
+
+def is_agent(p: rtc.RemoteParticipant) -> bool:
+    return p.kind == rtc.ParticipantKind.PARTICIPANT_KIND_AGENT
+
+
 class Interviewer(Agent):
-    def __init__(self, interview: Interview) -> None:
+    def __init__(self, interview: Interview, questions: asyncio.Task | None = None, opening: asyncio.Task | None = None, tts=None) -> None:
         super().__init__(instructions="You are an AI interviewer. Speak only the lines you are given.")
         self.interview = interview
+        self._questions = questions
+        # The opening line's audio, synthesized while waiting for the participant.
+        self._opening = opening
         self._timer: asyncio.Task | None = None
         self._finished = False
+        self._reported = False
+        self.started = False
+        self.opening_presynthesized = False
+        # Audio for every line known in advance (fixed lines, then the
+        # questions once written), so they play with no speech round trip.
+        self._tts = tts
+        self._lines: dict[str, asyncio.Task] = {}
+        self._acks = 0
+        for line in (*ACKNOWLEDGEMENTS, REASK, CLOSING, DECLINED):
+            self._warm(line)
+        if questions is not None:
+            questions.add_done_callback(self._warm_questions)
 
-    async def on_enter(self) -> None:
+    def _warm(self, text: str) -> None:
+        if self._tts is not None and text and text not in self._lines:
+            self._lines[text] = asyncio.create_task(presynthesize(self._tts, text))
+
+    def _warm_questions(self, task: asyncio.Task) -> None:
+        if not task.cancelled() and task.exception() is None:
+            for q in task.result():
+                self._warm(q)
+
+    def _say(self, text: str, **kwargs):
+        """Say a line, from audio made in advance when it is ready."""
+        frames = ready_audio(self._lines.get(text))
+        return self.session.say(text, **({"audio": replay(frames)} if frames else {}), **kwargs)
+
+    async def greet(self) -> None:
+        """The participant is in the room: say the disclosure at once. (The
+        session starts earlier, while they are in the lobby, so `on_enter`
+        says nothing.)"""
         # The clock starts with the disclosure.
         line = self.interview.start()
+        self.started = True
         self._timer = asyncio.create_task(self._time_limit())
-        await self.session.say(line, allow_interruptions=False)
+        frames = ready_audio(self._opening)
+        if frames is None and self._opening:
+            self._opening.cancel()
+        self.opening_presynthesized = frames is not None
+        audio = {"audio": replay(frames)} if frames else {}
+        await self.session.say(line, allow_interruptions=False, **audio)
+
+    async def _ensure_questions(self) -> None:
+        """Use the questions being written; past the wait, the owner's own or the fallback ones."""
+        task, self._questions = self._questions, None
+        if task is None:
+            return
+        job = self.interview.job
+        try:
+            questions = await asyncio.wait_for(task, timeout=QUESTIONS_WAIT_SECS)
+        except Exception as e:  # noqa: BLE001 (a timeout or a model error: fall back)
+            log.warning("meeting %s: writing questions failed (%s); using the fallback", job.meeting_id, e or type(e).__name__)
+            questions = plan_questions(dataclasses.replace(job, generate_questions=False), None)
+        job.questions = questions
+        for q in questions:
+            self._warm(q)
+        log.info("meeting %s: %s questions ready", job.meeting_id, len(questions))
 
     async def on_user_turn_completed(self, turn_ctx, new_message) -> None:
         text = new_message.text_content or ""
         if not self._finished:
+            if self.interview.state == "awaiting_consent":
+                await self._ensure_questions()
+            elif self.interview.will_think() and text.strip():
+                # Answer at once; the follow-up (or next question) comes after.
+                self._say(ACKNOWLEDGEMENTS[self._acks % len(ACKNOWLEDGEMENTS)])
+                self._acks += 1
             reply = await asyncio.to_thread(self.interview.hear, text)
             if reply.say:
-                handle = self.session.say(reply.say)
+                # The goodbye is said in full before the call ends.
+                handle = self._say(reply.say, allow_interruptions=not reply.done)
                 if reply.done:
                     await handle
-                    await self._finish()
+            if reply.done:
+                await self._finish()
         # Never let the default LLM reply speak.
         raise StopResponse()
+
+    async def welcome_back(self) -> None:
+        """Someone came back to an empty room: repeat where the interview is."""
+        if self._finished or not self.started:
+            return
+        await asyncio.sleep(1.5)  # let them subscribe to the agent's audio first
+        if not self._finished and (line := self.interview.resume()):
+            self.session.say(line)
 
     async def _time_limit(self) -> None:
         """Hard stop at the interview's time limit."""
         await asyncio.sleep(self.interview.remaining())
         if self._finished:
             return
-        reply = self.interview.time_up()
+        reply = await asyncio.to_thread(self.interview.time_up)
         log.info("interview %s reached its time limit", self.interview.job.meeting_id)
         self.session.interrupt()
         if reply.say:
@@ -87,53 +249,211 @@ class Interviewer(Agent):
         await self._finish()
 
     async def _finish(self) -> None:
+        """End the call: closing the session deletes the room, which
+        disconnects the participant; the results are posted on job shutdown
+        (`report`), so nobody waits in the room for the summary."""
         if self._finished:
             return
         self._finished = True
         if self._timer and self._timer is not asyncio.current_task():
             self._timer.cancel()
+        self.session.shutdown()
+
+    async def end_call(self, why: str) -> None:
+        """End the call without a goodbye (nobody is left to hear it)."""
+        if self._finished:
+            return
+        log.info("meeting %s: %s; ending the interview", self.interview.job.meeting_id, why)
+        await self._finish()
+
+    async def report(self) -> None:
+        """Give Combox the outcome, once, however the call ended: results if
+        consent was given, otherwise a recorded "no consent"."""
+        if self._reported:
+            return
+        self._reported = True
+        self._finished = True
+        if self._timer:
+            self._timer.cancel()
         iv = self.interview
-        try:
-            if iv.consent and iv.consent["granted"]:
+        if not iv.finished():
+            # The call ended before the interview did: the participant left
+            # (or the session failed).
+            log.info("meeting %s: the participant left; ending the interview", iv.job.meeting_id)
+            await asyncio.to_thread(iv.left)
+        if iv.consent and iv.consent["granted"]:
+            try:
                 results = await asyncio.to_thread(iv.results)
-                await asyncio.to_thread(post_event, iv.job.callback_url, iv.job.callback_token, results)
-        finally:
-            self.session.shutdown()
+                await asyncio.to_thread(post_with_retry, iv.job, results)
+            except Exception:
+                log.exception("meeting %s: posting the results failed", iv.job.meeting_id)
+
+
+def prewarm(proc: JobProcess) -> None:
+    """One-time setup when a worker process starts, so a call does none of
+    it: the person who joined hears the interviewer within seconds. No speech
+    model runs here: Deepgram detects speech and the end of each answer on its
+    servers, so a busy machine cannot fall behind the person talking."""
+    use_audio_buffer()
+    import anthropic  # noqa: F401 (imported now, used per call)
+    from livekit.plugins import deepgram  # noqa: F401
 
 
 async def entrypoint(ctx: JobContext) -> None:
+    started = time.monotonic()
     job = Job.from_metadata(ctx.job.metadata)
     await ctx.connect()
+
+    def emit(event: dict) -> None:
+        # Consent is reported to Combox the moment it is given or declined.
+        post_with_retry(job, event)
+
+    async def prepare() -> tuple[Interview, asyncio.Task, asyncio.Task, AgentSession]:
+        """Everything that does not need the participant: the company's keys,
+        the clients, the voice, the opening line's audio, and the questions
+        (written from here on, so they are ready by the time consent is given)."""
+        company = await asyncio.to_thread(fetch_keys, job.callback_url, job.callback_token, KEYS_TIMEOUT_SECS)
+
+        # The company's own keys first, then this agent's environment.
+        def key(name: str) -> str | None:
+            return company.get(name) or os.environ.get(name) or None
+
+        anthropic_key = key("ANTHROPIC_API_KEY")
+        # The company's Claude model (the one its AI workers use), if it chose one.
+        llm = ClaudeLLM(anthropic_key, company.get("AXOM_AI_MODEL")) if anthropic_key else None
+        if llm is None:
+            log.warning("meeting %s: no Anthropic key; using the owner's or the fallback questions", job.meeting_id)
+        interview = Interview(job=job, llm=llm, follow_up_llm=ClaudeLLM(anthropic_key, fast=True) if llm else None, emit=emit)
+        # Written at low effort: at the default the model thought for over a
+        # minute, and the person's "yes" to consent waits on the questions.
+        writer = ClaudeLLM(anthropic_key, company.get("AXOM_AI_MODEL"), effort="low") if llm else None
+        questions = asyncio.create_task(asyncio.to_thread(plan_questions, dataclasses.replace(job), writer))
+        log.info("meeting %s: voice stt=deepgram tts=%s, limit %ss", job.meeting_id, tts_provider(key), job.max_duration_secs)
+        tts = build_tts(key)
+        opening = asyncio.create_task(presynthesize(tts, job.disclosure))
+        # Deepgram decides when an answer has ended (see `build_stt`); LiveKit's
+        # default turn timing, as in Foreman, so replies come promptly.
+        session = AgentSession(stt=build_stt(key), tts=tts, vad=None, turn_detection="stt")
+        return interview, questions, opening, session
+
+    # The agent arrives when the join page opens: everything below is set up
+    # while the person is still in the lobby, so when they enter, the
+    # interviewer's audio track is already in the room and its first line is
+    # already recorded.
+    interview, questions, opening, session = await prepare()
+    interviewer = Interviewer(interview, questions, opening, session.tts)
+    joined = 0.0
+
+    @session.on("agent_state_changed")
+    def _speaking(ev) -> None:
+        # The first time the interviewer is heard: how long the person waited.
+        if ev.new_state == "speaking" and not getattr(_speaking, "done", False):
+            _speaking.done = True
+            now = time.monotonic()
+            log.info(
+                "meeting %s: first words %.1fs after someone was in the room (%.1fs after the job arrived; opening line %s)",
+                job.meeting_id, now - joined, now - started, "pre-synthesized" if interviewer.opening_presynthesized else "spoken live",
+            )
+
+    async def close_room() -> None:
+        # `delete_room_on_close` starts this as soon as the session closes;
+        # awaiting it here makes sure job shutdown does not cancel it. A room
+        # that is already gone is fine.
+        await ctx.delete_room()
+
+    ctx.add_shutdown_callback(close_room)
+
+    @session.on("close")
+    def _closed(ev) -> None:
+        # The session closed: the interview is over, everyone left, or it
+        # failed. The room is deleted with it (`delete_room_on_close`); end
+        # the job too.
+        log.info("meeting %s: call ended (%s)", job.meeting_id, ev.reason.value)
+        ctx.shutdown(reason=f"call ended: {ev.reason.value}")
+
+    await session.start(
+        agent=interviewer,
+        room=ctx.room,
+        # People leaving is handled below: the call ends only when nobody is
+        # left, so one person leaving never cuts off another.
+        room_options=room_io.RoomOptions(close_on_disconnect=False, delete_room_on_close=True),
+    )
+
     # Wait for the candidate only until the join link expires.
-    wait = job.seconds_until_join_deadline()
     try:
-        await asyncio.wait_for(ctx.wait_for_participant(), timeout=wait)
+        await asyncio.wait_for(ctx.wait_for_participant(), timeout=job.seconds_until_join_deadline())
     except asyncio.TimeoutError:
         log.info("meeting %s: nobody joined before the link expired; leaving", job.meeting_id)
         ctx.shutdown(reason="join link expired")
         return
+    joined = time.monotonic()
+    # However the call ends, Combox gets the outcome before the job exits.
+    ctx.add_shutdown_callback(interviewer.report)
+    greeting = asyncio.create_task(interviewer.greet())  # noqa: F841 (kept so it is not garbage-collected)
 
-    def emit(event: dict) -> None:
-        # Consent is reported to Combox the moment it is given or declined.
-        post_event(job.callback_url, job.callback_token, event)
+    empty: dict[str, asyncio.Task | None] = {"timer": None}
 
-    # The company's own keys first, then this agent's environment.
-    company = await asyncio.to_thread(fetch_keys, job.callback_url, job.callback_token)
+    def people() -> list[rtc.RemoteParticipant]:
+        return [p for p in ctx.room.remote_participants.values() if not is_agent(p)]
 
-    def key(name: str) -> str | None:
-        return company.get(name) or os.environ.get(name) or None
+    async def end_if_still_empty() -> None:
+        await asyncio.sleep(EMPTY_ROOM_GRACE_SECS)
+        if not people():
+            await interviewer.end_call("nobody came back to the room")
 
-    anthropic_key = key("ANTHROPIC_API_KEY")
-    # The company's Claude model (the one its AI workers use), if it chose one.
-    llm = ClaudeLLM(anthropic_key, company.get("AXOM_AI_MODEL")) if anthropic_key else None
-    interview = Interview(job=job, llm=llm, emit=emit)
-    log.info("meeting %s: voice stt=deepgram tts=%s, limit %ss", job.meeting_id, tts_provider(key), job.max_duration_secs)
-    session = AgentSession(stt=build_stt(key), tts=build_tts(key), vad=silero.VAD.load())
-    await session.start(agent=Interviewer(interview), room=ctx.room)
+    @ctx.room.on("participant_disconnected")
+    def _left(p: rtc.RemoteParticipant) -> None:
+        if is_agent(p):
+            return
+        others = people()
+        if others:
+            # Keep talking to whoever is still here.
+            rio = session.room_io
+            linked = rio.linked_participant if rio else None
+            if rio and (linked is None or linked.identity == p.identity or linked.identity not in {o.identity for o in others}):
+                rio.set_participant(others[0].identity)
+            return
+        if p.disconnect_reason in LEFT_ON_PURPOSE:
+            # The last person pressed Leave: that ends the interview.
+            asyncio.create_task(interviewer.end_call("the participant left"))
+        elif empty["timer"] is None or empty["timer"].done():
+            # A dropped connection: wait for them to come back.
+            empty["timer"] = asyncio.create_task(end_if_still_empty())
+
+    @ctx.room.on("participant_connected")
+    def _joined(p: rtc.RemoteParticipant) -> None:
+        if is_agent(p):
+            return
+        timer, empty["timer"] = empty["timer"], None
+        if timer and not timer.done():
+            timer.cancel()
+        if [o.identity for o in people()] == [p.identity]:
+            # The room was empty: they are back.
+            asyncio.create_task(interviewer.welcome_back())
+
+    # Everyone may have left already: treat it like a dropped connection.
+    if not people():
+        empty["timer"] = asyncio.create_task(end_if_still_empty())
 
 
 def main() -> None:
-    cli.run_app(WorkerOptions(entrypoint_fnc=entrypoint, agent_name=AGENT_NAME))
+    # Log the agent's own stalls only when they are long: writing each report
+    # (a stack trace) itself held the agent up on a busy machine.
+    os.environ.setdefault("LIVEKIT_AGENTS_LOOP_BLOCK_WARN_MS", "500")
+    cli.run_app(
+        WorkerOptions(
+            entrypoint_fnc=entrypoint,
+            prewarm_fnc=prewarm,
+            agent_name=AGENT_NAME,
+            load_threshold=LOAD_THRESHOLD,
+            num_idle_processes=IDLE_PROCESSES,
+            # Loading the speech models took 17-35 s on a busy machine. Past
+            # this limit LiveKit kills the spare process and loads it again,
+            # in a loop that starves the call in progress; let it finish.
+            initialize_process_timeout=120,
+            shutdown_process_timeout=REPORT_TIMEOUT_SECS,
+        )
+    )
 
 
 if __name__ == "__main__":
