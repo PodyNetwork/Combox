@@ -235,13 +235,20 @@ async fn tasks(State(s): State<AppState>) -> Result<Json<serde_json::Value>, Api
     }
     // Failed tasks carry their next automatic retry, if one is planned.
     let planned = axom_planner::retry::planned(&s.pool).await?;
+    // Tasks waiting on a hire carry where that hire stands.
+    let mut hiring: std::collections::HashMap<_, _> =
+        axom_hr::hiring::open_by_task(&s.pool).await?.into_iter().map(|h| (h.task_id, h)).collect();
     let tasks: Vec<serde_json::Value> = all
         .into_iter()
         .map(|t| {
             let auto = planned.get(&t.id).cloned();
+            let hire = hiring.remove(&t.id);
             let mut v = json!(t);
             if let Some(a) = auto {
                 v["auto_retry"] = json!(a);
+            }
+            if let Some(h) = hire {
+                v["hiring"] = json!(h);
             }
             v
         })

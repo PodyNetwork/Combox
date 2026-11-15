@@ -1,21 +1,20 @@
-// Treasury yield on Rhea lending: how much of the treasury is earning, how
-// much stays liquid for payroll and why, and every move the signer made.
-// The switch turns it on or off (also in Settings); the signer decides and
-// moves by the policy's rules alone.
+// Treasury yield on Rhea lending, shared by the Overview card and the full
+// page: the data, the on/off switch, and how to read the signer's latest plan.
+// The signer decides and moves by the policy's rules alone; the switch only
+// saves the company's choice.
 import { useState } from "react";
-import { Badge, ErrorNote, Icon, Loading, Panel, PanelHead, Toggle, ago, human, useApp, useCompanyApi, useLoad } from "../ui.jsx";
+import { ErrorNote, Icon, Loading, Panel, PanelHead, Toggle, useApp, useCompanyApi, useLoad } from "../ui.jsx";
 
 // yocto string -> NEAR number (display only).
-const nearOf = (y) => (y == null ? null : Number(BigInt(y) / 10n ** 20n) / 1e4);
-const fmt = (n, d = 2) => (n == null ? "—" : Number(n).toLocaleString(undefined, { maximumFractionDigits: d }));
-const pct = (apr) => (apr == null ? "—" : `${(Number(apr) * 100).toLocaleString(undefined, { maximumFractionDigits: 2 })}%`);
-const MOVE_TONE = { succeeded: "lime", submitted: "sky", failed: "ember" };
-const KIND = { register: "Registered on Rhea", supply: "Supplied", withdraw: "Withdrew", unwrap: "Unwrapped" };
+export const nearOf = (y) => (y == null ? null : Number(BigInt(y) / 10n ** 20n) / 1e4);
+export const fmt = (n, d = 2) => (n == null ? "—" : Number(n).toLocaleString(undefined, { maximumFractionDigits: d }));
+export const pct = (apr) => (apr == null ? "—" : `${(Number(apr) * 100).toLocaleString(undefined, { maximumFractionDigits: 2 })}%`);
 
-export function TreasuryYieldCard({ i = 0, className = "" }) {
-  const { navigate, notify } = useApp();
+/** The yield status and the switch, for the card and the page. */
+export function useTreasuryYield({ poll = 60000 } = {}) {
+  const { notify } = useApp();
   const call = useCompanyApi();
-  const { data, error, reload } = useLoad("/admin/treasury/yield", { poll: 60000 });
+  const yieldData = useLoad("/admin/treasury/yield", { poll });
   const policy = useLoad("/admin/policy");
   const [busy, setBusy] = useState(false);
   // Saves only the yield choice; the company's other rules stay as stored.
@@ -25,97 +24,108 @@ export function TreasuryYieldCard({ i = 0, className = "" }) {
     setBusy(true);
     try {
       await call("/admin/policy", { method: "POST", body: { approval_threshold_usd: c.approval_threshold_usd ?? null, candidate_retention_days: c.candidate_retention_days ?? null, treasury_yield_enabled: on } });
-      notify(on ? "Treasury yield is on. The signer supplies idle NEAR to Rhea within a minute." : "Treasury yield is off. The signer withdraws everything from Rhea.");
-      reload();
+      notify(on ? "Treasury yield is on. The signer supplies idle NEAR to Rhea within a minute." : "Treasury yield is off. The signer withdraws everything from Rhea within a minute.");
+      yieldData.reload();
       policy.reload();
     } catch (err) {
       notify(err.message, "error");
     }
     setBusy(false);
   };
-  const plan = data?.plan;
+  return { ...yieldData, toggle, busy, canToggle: !busy && !!policy.data };
+}
+
+/** Balances from the latest plan, in NEAR. */
+export function balancesOf(plan) {
   const pos = plan?.position;
-  const liquid = nearOf(pos?.liquid_yocto);
-  const supplied = nearOf(pos?.supplied_yocto);
-  const floor = nearOf(plan?.floor_yocto);
-  const total = (liquid ?? 0) + (supplied ?? 0);
-  const share = total > 0 ? Math.round(((supplied ?? 0) / total) * 100) : 0;
+  const liquid = nearOf(pos?.liquid_yocto) ?? 0;
+  const wnear = nearOf(pos?.wnear_yocto) ?? 0;
+  const supplied = nearOf(pos?.supplied_yocto) ?? 0;
+  const total = liquid + wnear + supplied;
+  return { liquid, wnear, supplied, total, floor: nearOf(plan?.floor_yocto), target: nearOf(plan?.target_yocto), apr: pos?.supply_apr };
+}
+
+const MOVING = { register: "Registering on Rhea", supply: "Supplying", withdraw: "Withdrawing", unwrap: "Unwrapping" };
+
+/** One word for where things stand, a badge tone, and a plain sentence. */
+export function stateOf(data) {
+  const plan = data?.plan;
+  if (!data) return null;
+  if (!plan) return data.enabled ? { label: "Starting", tone: "sky", text: "Waiting for the signer's first check of the treasury." } : { label: "Off", tone: "mute", text: "Off. Turn it on and NEAR payroll can't spend this month earns in Rhea lending." };
+  const r = plan.reason || "";
+  const b = balancesOf(plan);
+  if (plan.action) return { label: MOVING[plan.action.kind] || "Moving", tone: "sky", text: r };
+  if (r.includes("fund the treasury")) return { label: "Needs funding", tone: "amber", text: `Liquid NEAR is below the floor payroll needs, and nothing is in Rhea to pull back. Add NEAR to the treasury or lower the monthly cap.` };
+  if (r.startsWith("no fresh NEAR price")) return { label: "No price", tone: "amber", text: "No fresh NEAR price, so nothing new is supplied. Payouts already owed stay covered." };
+  if (r.includes("paused")) return { label: "Rhea paused", tone: "amber", text: r };
+  if (r.startsWith("treasury yield is off")) return { label: "Off", tone: "mute", text: b.supplied > 0 ? r : "Off. Everything is liquid in the treasury." };
+  if (r.startsWith("holding")) {
+    return b.supplied > 0
+      ? { label: "Earning", tone: "lime", text: `${fmt(b.supplied, 3)} NEAR is earning in Rhea; ${fmt(b.liquid, 3)} NEAR stays liquid for payroll.` }
+      : { label: "Holding", tone: "mute", text: `Not enough above the target to supply yet (moves start at ${data.rules?.min_move_near ?? "0.5"} NEAR).` };
+  }
+  return { label: "Holding", tone: "mute", text: r };
+}
+
+const DOT = { lime: "bg-lime", sky: "bg-sky", amber: "bg-amber", ember: "bg-ember", mute: "bg-white/30" };
+export function StateDot({ tone }) {
+  return <span className={`inline-block shrink-0 rounded-full size-2 ${DOT[tone] || DOT.mute} ${tone === "sky" ? "pulse-dot" : ""}`} aria-hidden="true" />;
+}
+
+export function YieldSwitch({ y, small = true }) {
+  if (!y.data) return null;
+  return (
+    <span className="flex items-center gap-2 text-xs text-mute">
+      {y.data.enabled ? "On" : "Off"}
+      <Toggle on={y.data.enabled} onChange={y.toggle} disabled={!y.canToggle} label="Treasury yield" small={small} />
+    </span>
+  );
+}
+
+/** The Overview card: the two balances, the split, one status line. */
+export function TreasuryYieldCard({ i = 0, className = "" }) {
+  const { navigate } = useApp();
+  const y = useTreasuryYield();
+  const { data, error } = y;
+  const plan = data?.plan;
+  const b = balancesOf(plan);
+  const share = b.total > 0 ? Math.round((b.supplied / b.total) * 100) : 0;
+  const state = stateOf(data);
   return (
     <Panel i={i} className={`flex flex-col p-6 ${className}`}>
-      <PanelHead
-        eyebrow="Rhea Finance lending"
-        title="Treasury yield"
-        action={data && (
-          <span className="flex items-center gap-2 text-xs text-mute">
-            {data.enabled ? "On" : "Off"}
-            <Toggle on={data.enabled} onChange={toggle} disabled={busy || !policy.data} label="Treasury yield" small />
-          </span>
-        )}
-      />
+      <PanelHead eyebrow="Rhea Finance lending" title="Treasury yield" action={<YieldSwitch y={y} />} />
       <ErrorNote error={error} />
       {!data && !error && <Loading rows={2} />}
-      {data && !plan && (
-        <p className="text-sm text-mute">
-          {data.enabled
-            ? "Waiting for the signer's first check of the treasury."
-            : "Off. Turn it on and NEAR the monthly cap can't spend this month is supplied to Rhea lending and pulled back before payroll needs it."}
-        </p>
-      )}
       {plan && (
         <>
           <div className="grid grid-cols-2 gap-4">
             <div>
               <p className="text-xs text-mute">Earning in Rhea</p>
-              <p className="num mt-1 font-display text-3xl font-semibold tracking-tight">{fmt(supplied)}<span className="ml-1.5 font-sans text-sm font-normal text-mute">NEAR</span></p>
-              <p className="num mt-1 text-xs text-mute">{pct(pos.supply_apr)} APR · {share}% of treasury</p>
+              <p className="num mt-1 font-display text-3xl font-semibold tracking-tight">{fmt(b.supplied)}<span className="ml-1.5 font-sans text-sm font-normal text-mute">NEAR</span></p>
             </div>
             <div>
               <p className="text-xs text-mute">Liquid for payroll</p>
-              <p className="num mt-1 font-display text-3xl font-semibold tracking-tight">{fmt(liquid)}<span className="ml-1.5 font-sans text-sm font-normal text-mute">NEAR</span></p>
-              <p className="num mt-1 text-xs text-mute">floor {fmt(floor)} NEAR</p>
+              <p className="num mt-1 font-display text-3xl font-semibold tracking-tight">{fmt(b.liquid + b.wnear)}<span className="ml-1.5 font-sans text-sm font-normal text-mute">NEAR</span></p>
             </div>
           </div>
-          {total > 0 && (
-            <div className="mt-4 flex h-1.5 overflow-hidden rounded-full bg-white/5" aria-hidden="true">
+          {b.total > 0 && (
+            <div className="mt-4 flex h-1.5 overflow-hidden rounded-full bg-white/5" role="img" aria-label={`${share}% of the treasury is in Rhea`}>
               <div className="bg-lime" style={{ width: `${share}%` }} />
             </div>
           )}
-          <p className="mt-4 text-xs leading-relaxed text-mute">
-            {plan.reason}
-            {data.earned_near != null && Number(data.earned_near) > 0 && <> · earned so far ≈ {fmt(data.earned_near, 4)} NEAR</>}
-          </p>
-          <p className="mt-1 text-[11px] text-dim">
-            The floor keeps liquid what payroll may still pay this month: payouts owed plus the monthly cap's headroom, plus {data.rules.min_liquid_near} NEAR.
-            Checked {ago(data.checked_at)}.
-          </p>
         </>
       )}
-      {data?.moves?.length > 0 && (
-        <ul className="mt-4 divide-y divide-white/5 border-t border-white/5">
-          {data.moves.slice(0, 5).map((m) => (
-            <li key={m.id} className="flex items-center gap-3 py-2 text-xs">
-              <Badge tone={MOVE_TONE[m.status] || "mute"}>{human(m.status)}</Badge>
-              <span className="min-w-0 flex-1 truncate text-fog/90" title={m.error || m.reason}>
-                {KIND[m.kind] || m.kind} <span className="num">{fmt(m.amount_near, 3)}</span> NEAR
-              </span>
-              <a href={m.explorer_url} target="_blank" rel="noreferrer noopener" className="inline-flex shrink-0 items-center gap-1 text-mute hover:text-fog" title={m.tx_hash}>
-                {ago(m.created_at)} <Icon name="external" size={12} />
-              </a>
-            </li>
-          ))}
-        </ul>
+      {state && (
+        <p className="mt-4 flex items-start gap-2 text-xs leading-relaxed text-mute">
+          <span className="mt-1"><StateDot tone={state.tone} /></span>
+          <span className="line-clamp-2" title={plan?.reason}><span className="font-medium text-fog">{state.label}.</span> {state.text}</span>
+        </p>
       )}
       {data && (
-        <div className="mt-auto flex flex-wrap items-center gap-x-3 gap-y-1 pt-4">
-          <p className="mr-auto font-mono text-[10px] text-dim" title={data.lending_contract}>
-            supply only · never borrows · funds only return to the treasury
-          </p>
-          <button type="button" onClick={() => navigate("settings")} className="inline-flex items-center gap-1 text-xs text-mute hover:text-fog">
-            Settings <Icon name="arrow" size={12} />
-          </button>
-        </div>
+        <button type="button" onClick={() => navigate("yield")} className="mt-auto inline-flex items-center gap-1 self-start pt-4 text-xs text-mute hover:text-fog">
+          Details and history <Icon name="arrow" size={12} />
+        </button>
       )}
     </Panel>
   );
 }
-

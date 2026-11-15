@@ -547,3 +547,183 @@ def test_the_opening_line_is_played_from_presynthesized_audio_only_when_ready():
         assert ready_audio(None) is None
 
     asyncio.run(main())
+
+
+
+# -- answers with pauses ------------------------------------------------------
+
+
+def test_an_answer_that_sounds_unfinished_gets_the_long_wait():
+    import asyncio
+
+    from livekit.agents import AgentSession, llm
+
+    from axom_meet.turns import MAX_WAIT_SECS, MIN_WAIT_SECS, TURN_HANDLING, AnswerEndDetector, sounds_finished
+
+    # Deepgram punctuates only the end of a sentence.
+    for done in ["Yes.", "Yes, I consent.", "I think so.", "Yes, I do.", "That's it.", "Is that okay?", 'I said "fine."']:
+        assert sounds_finished(done), done
+    for going_on in ["", "So the project I am proudest of is", "a brand film for a coffee company, and", "I handled the edit and.", "Well, um.", "It was the", "and then I,"]:
+        assert not sounds_finished(going_on), going_on
+
+    async def main():
+        detector = AnswerEndDetector()
+
+        async def predict(text):
+            ctx = llm.ChatContext()
+            ctx.add_message(role="assistant", content="Tell me about a project.")
+            ctx.add_message(role="user", content=text)
+            return await detector.predict_end_of_turn(ctx)
+
+        threshold = await detector.unlikely_threshold("en")
+        assert await predict("I edited a documentary.") > threshold
+        assert await predict("I edited a documentary and") < threshold
+        # LiveKit takes the detector and learns each person's pauses between the two waits.
+        session = AgentSession(turn_handling={"turn_detection": detector, **TURN_HANDLING})
+        assert session.options.endpointing == {"mode": "dynamic", "min_delay": MIN_WAIT_SECS, "max_delay": MAX_WAIT_SECS, "alpha": 0.9}
+
+    asyncio.run(main())
+
+
+def test_an_answer_can_be_taken_back_and_heard_whole():
+    iv, said, _ = run(["Yes, I consent."], llm=FakeLLM(follow_up="What was the hardest part?"))
+    cp = iv.checkpoint()
+    assert iv.hear("I designed a fintech logo, and").say == "What was the hardest part?"
+    iv.rewind(cp)
+    assert iv.hear("I designed a fintech logo, and I ran the brand workshop.").say == "What was the hardest part?"
+    answers = [t.text for t in iv.transcript if t.speaker == "participant"]
+    assert answers == ["Yes, I consent.", "I designed a fintech logo, and I ran the brand workshop."]
+    assert [t.text for t in iv.transcript].count("What was the hardest part?") == 1
+    # Consent is never taken back.
+    fresh = Interview(job())
+    fresh.start()
+    with pytest.raises(AssertionError):
+        fresh.rewind(fresh.checkpoint())
+
+
+class _Handle:
+    """A LiveKit SpeechHandle stand-in: played out at once, or talked over."""
+
+    def __init__(self, interrupted=False):
+        self.interrupted = interrupted
+
+    def add_done_callback(self, cb):
+        cb(self)
+
+    def __await__(self):
+        yield from ()
+        return self
+
+
+class _Session:
+    def __init__(self):
+        self.said, self.talk_over = [], set()
+
+    def say(self, text, **kw):
+        self.said.append(text)
+        return _Handle(interrupted=text in self.talk_over)
+
+    def shutdown(self):
+        self.said.append("<call ended>")
+
+
+class _Call:
+    """The real `Interviewer` driven turn by turn, on a controllable clock."""
+
+    def __init__(self, monkeypatch, questions=("Tell me about a recent logo project.", "How do you handle feedback?"), follow_up="NONE"):
+        import types
+
+        from axom_meet import agent as A
+
+        self.now = 100.0
+        monkeypatch.setattr(A, "time", types.SimpleNamespace(monotonic=lambda: self.now))
+        session = _Session()
+
+        class Probe(A.Interviewer):
+            @property
+            def session(self):
+                return session
+
+        self.session = session
+        self.iv = Interview(job(questions), llm=FakeLLM(follow_up=follow_up))
+        self.probe = Probe(self.iv)
+        self.iv.start()
+        self.probe.started = True
+
+    def turn(self, text):
+        import asyncio
+
+        from livekit.agents import StopResponse
+
+        class Msg:
+            text_content = text
+
+        async def go():
+            with pytest.raises(StopResponse):
+                await self.probe.on_user_turn_completed(None, Msg())
+
+        asyncio.run(go())
+        self.now += 0.5
+
+    def speak(self, secs=1.0, after=0.5):
+        self.now += after
+        self.probe.user_speaking(True)
+        self.now += secs
+        self.probe.user_speaking(False)
+
+    def answers(self):
+        return [t.text for t in self.iv.transcript if t.speaker == "participant"]
+
+
+def test_a_participant_who_pauses_and_carries_on_is_heard_as_one_answer(monkeypatch):
+    call = _Call(monkeypatch, follow_up="What was the hardest part?")
+    q1, q2 = call.iv.job.questions
+    call.turn("Yes, I consent.")
+    assert call.session.said[-1] == q1
+    # They pause mid-thought: the interviewer starts its follow-up and is talked over.
+    call.session.talk_over = {"What was the hardest part?"}
+    call.turn("I designed a logo for a fintech, and")
+    call.speak()
+    call.session.talk_over = set()
+    call.turn("I also ran the brand workshop.")
+    assert call.answers() == ["Yes, I consent.", "I designed a logo for a fintech, and I also ran the brand workshop."]
+    assert call.iv._q == 0 and call.iv._followed_up, "still on the first question, its follow-up now asked"
+    # The follow-up heard in full: the next turn answers it.
+    call.speak()
+    call.turn("Getting the colours right.")
+    assert call.session.said[-1] == q2
+    assert call.answers()[-1] == "Getting the colours right."
+
+
+def test_speech_after_the_reply_a_cough_or_a_long_pause_is_a_new_answer(monkeypatch):
+    call = _Call(monkeypatch, questions=("Q1?", "Q2?", "Q3?"))
+    call.turn("Yes, I consent.")
+    call.speak(secs=0.1)  # a cough
+    call.turn("I designed a fintech logo.")
+    assert call.session.said[-1] == "Q2?"
+    call.speak()  # answering the next question, which played out
+    call.turn("I ask for written notes.")
+    assert call.session.said[-1] == "Q3?"
+    # Talked over, but only long after the answer was handed over.
+    call.session.talk_over = {"Thank you.", "Got it."}
+    from axom_meet.agent import RESUME_WINDOW_SECS
+
+    call.speak(after=RESUME_WINDOW_SECS + 1)
+    call.turn("I review it the next morning.")
+    assert call.answers() == ["Yes, I consent.", "I designed a fintech logo.", "I ask for written notes.", "I review it the next morning."]
+    assert call.session.said[-2:] == [CLOSING, "<call ended>"]
+
+
+def test_a_last_answer_carried_on_over_the_goodbye_reopens_the_interview(monkeypatch):
+    call = _Call(monkeypatch, questions=("Tell me about a recent logo project.",))
+    call.turn("Yes, I consent.")
+    call.session.talk_over = {CLOSING}
+    call.turn("I designed a logo, and")
+    assert "<call ended>" not in call.session.said, "the goodbye was talked over: wait for the rest"
+    call.probe._closing_fallback.cancel()
+    call.speak()
+    call.session.talk_over = set()
+    call.turn("I presented it to the board.")
+    assert call.answers()[-1] == "I designed a logo, and I presented it to the board."
+    assert call.session.said[-2:] == [CLOSING, "<call ended>"]
+

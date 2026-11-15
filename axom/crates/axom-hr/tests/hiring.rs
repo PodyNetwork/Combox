@@ -89,6 +89,30 @@ async fn job_posting_runs_policy_check_before_posting(pool: PgPool) {
 }
 
 #[sqlx::test(migrator = "axom_core::MIGRATOR")]
+async fn a_waiting_task_shows_where_its_hire_stands(pool: PgPool) {
+    let (p, hr, task) = setup(&pool).await;
+    let stage = |pool: PgPool| async move {
+        let all = hiring::open_by_task(&pool).await.unwrap();
+        assert_eq!(all.len(), 1);
+        all.into_iter().next().unwrap()
+    };
+    // Opened by routing, not posted yet.
+    let h = stage(pool.clone()).await;
+    assert_eq!((h.task_id, h.kind.as_str(), h.posted_at.is_some(), h.applicants), (task, "human_freelancer", false, 0));
+    // Posted: both applicants count; only the one whose skills match is shortlisted.
+    let tools = MockTools::new().with_applicants(applicants());
+    let job = hiring::post_job(&pool, &p, &tools, hr, FREELANCER_TEMPLATE).await.unwrap();
+    hiring::shortlist(&pool, &p, &tools, job, 3).await.unwrap();
+    let h = stage(pool.clone()).await;
+    assert!(h.posted_at.is_some());
+    assert_eq!(h.marketplace.as_deref(), Some("upwork"));
+    assert_eq!((h.applicants, h.shortlisted, h.interviewing, h.contract_sent), (2, 1, 0, 0));
+    // A filled request no longer shows.
+    sqlx::query("UPDATE axom.hiring_requests SET status = 'filled'").execute(&pool).await.unwrap();
+    assert!(hiring::open_by_task(&pool).await.unwrap().is_empty());
+}
+
+#[sqlx::test(migrator = "axom_core::MIGRATOR")]
 async fn freelancer_hire_interview_rubric_contract_and_routing(pool: PgPool) {
     let (p, hr, design_task) = setup(&pool).await;
     let tools = MockTools::new().with_applicants(applicants());

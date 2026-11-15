@@ -32,6 +32,10 @@ use crate::policy::{PolicyConfig, PriceQuote, TreasuryRules};
 pub const GAS_RESERVE_YOCTO: u128 = 50_000_000_000_000_000_000_000; // 0.05 NEAR
 /// wNEAR below this is left alone (unwrapping dust costs more than it returns).
 pub const UNWRAP_DUST_YOCTO: u128 = 1_000_000_000_000_000_000_000; // 0.001 NEAR
+/// A Rhea balance below this is never withdrawn: interest keeps accruing on
+/// what a full withdrawal leaves behind, and pulling back a speck every
+/// minute would cost more gas than it returns.
+pub const WITHDRAW_DUST_YOCTO: u128 = UNWRAP_DUST_YOCTO;
 
 /// What payroll may still need, as the planner sees it.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize)]
@@ -56,6 +60,8 @@ pub struct Plan {
     pub target_yocto: Option<u128>,
     pub position: TreasuryPosition,
     pub obligations: Obligations,
+    /// The fresh NEAR price the floor was computed at (USD per NEAR), if any.
+    pub usd_per_near: Option<Decimal>,
 }
 
 fn near_to_yocto(d: Decimal) -> u128 {
@@ -107,17 +113,10 @@ pub fn plan(rules: &TreasuryRules, pos: &TreasuryPosition, ob: Obligations, pric
         target_yocto: target,
         position: pos.clone(),
         obligations: ob,
+        usd_per_near: price.as_ref().map(|q| q.usd_per_near),
     };
     let min_liquid = near_to_yocto(rules.min_liquid_near);
     let min_move = near_to_yocto(rules.min_move_near);
-
-    // wNEAR sitting in the treasury (withdrawn from Rhea, or an intent refund) goes back to NEAR first.
-    if pos.wnear_yocto >= UNWRAP_DUST_YOCTO {
-        return mk(Some(Move::Unwrap { amount_yocto: pos.wnear_yocto }), format!("unwrap {} wNEAR back to liquid NEAR", fmt(pos.wnear_yocto)), None, None);
-    }
-    if pos.extra_decimals != 0 {
-        return mk(None, format!("Rhea reports extra_decimals {} for wNEAR; refusing to move (amounts would be mis-scaled)", pos.extra_decimals), None, None);
-    }
 
     // The floor. Without a price, only payouts already owed are known.
     let floor_known = ob.owed_yocto.saturating_add(min_liquid);
@@ -130,10 +129,21 @@ pub fn plan(rules: &TreasuryRules, pos: &TreasuryPosition, ob: Obligations, pric
         None => (None, None),
     };
 
+    // wNEAR sitting in the treasury (withdrawn from Rhea, or an intent refund) goes back to NEAR first.
+    if pos.wnear_yocto >= UNWRAP_DUST_YOCTO {
+        return mk(Some(Move::Unwrap { amount_yocto: pos.wnear_yocto }), format!("unwrap {} wNEAR back to liquid NEAR", fmt_down(pos.wnear_yocto)), floor, target);
+    }
+    if pos.extra_decimals != 0 {
+        return mk(None, format!("Rhea reports extra_decimals {} for wNEAR; refusing to move (amounts would be mis-scaled)", pos.extra_decimals), floor, target);
+    }
+
+    // What can usefully come back from Rhea (dust stays).
+    let withdrawable = if pos.supplied_yocto >= WITHDRAW_DUST_YOCTO { pos.supplied_yocto } else { 0 };
+
     // Yield turned off: bring everything home.
-    if !rules.yield_enabled && pos.supplied_yocto > 0 {
+    if !rules.yield_enabled && withdrawable > 0 {
         return if pos.can_withdraw {
-            mk(Some(Move::Withdraw { amount_yocto: pos.supplied_yocto }), "treasury yield is off: withdrawing everything from Rhea".into(), floor, target)
+            mk(Some(Move::Withdraw { amount_yocto: withdrawable }), "treasury yield is off: withdrawing everything from Rhea".into(), floor, target)
         } else {
             mk(None, "treasury yield is off but Rhea has withdrawals paused for wNEAR".into(), floor, target)
         };
@@ -142,14 +152,14 @@ pub fn plan(rules: &TreasuryRules, pos: &TreasuryPosition, ob: Obligations, pric
     // Below the floor: withdraw back up to the target.
     let must_hold = floor.unwrap_or(floor_known);
     if pos.liquid_yocto < must_hold {
-        if pos.supplied_yocto == 0 {
+        if withdrawable == 0 {
             return mk(None, format!("liquid {} NEAR is below the {} NEAR floor and nothing is in Rhea: fund the treasury", fmt_down(pos.liquid_yocto), fmt_up(must_hold)), floor, target);
         }
         if !pos.can_withdraw {
             return mk(None, "below the liquidity floor, but Rhea has withdrawals paused for wNEAR".into(), floor, target);
         }
         let want = target.unwrap_or(must_hold).saturating_sub(pos.liquid_yocto).max(min_move);
-        let amount = want.min(pos.supplied_yocto);
+        let amount = want.min(withdrawable);
         return mk(
             Some(Move::Withdraw { amount_yocto: amount }),
             format!("liquid {} NEAR is below the {} NEAR payroll floor: withdrawing {} NEAR from Rhea", fmt_down(pos.liquid_yocto), fmt_up(must_hold), fmt(amount)),
@@ -332,5 +342,21 @@ mod tests {
         let floor = p.floor_yocto.unwrap();
         let p = plan(&rules(), &pos(floor - 1, 0), ob(0, dec!(500)), price(dec!(3.12)));
         assert!(p.reason.starts_with("liquid 161.256 NEAR is below the 161.257 NEAR floor"), "{}", p.reason);
+    }
+
+    #[test]
+    fn interest_dust_left_in_rhea_is_never_withdrawn() {
+        // A full withdrawal leaves a speck of accrued interest behind.
+        let dust = 528_136_906_772_004_469u128; // ~0.0000005 NEAR, seen on testnet
+        let off = TreasuryRules { yield_enabled: false, ..Default::default() };
+        let p = plan(&off, &pos(5 * N, dust), ob(0, dec!(2)), price(dec!(3)));
+        assert_eq!(p.action, None, "{}", p.reason);
+        // Below the floor with only dust in Rhea: ask for funding, don't withdraw the dust.
+        let p = plan(&rules(), &pos(N, dust), ob(0, dec!(500)), price(dec!(3)));
+        assert_eq!(p.action, None, "{}", p.reason);
+        assert!(p.reason.contains("fund the treasury"), "{}", p.reason);
+        // Anything real still comes home when yield is turned off.
+        let p = plan(&off, &pos(5 * N, WITHDRAW_DUST_YOCTO), ob(0, dec!(2)), price(dec!(3)));
+        assert_eq!(p.action, Some(Move::Withdraw { amount_yocto: WITHDRAW_DUST_YOCTO }));
     }
 }

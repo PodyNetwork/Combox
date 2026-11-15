@@ -574,6 +574,7 @@ const PATHS = {
   meetings: "M3 7h12v10H3zM15 10l6-3v10l-6-3",
   payroll: "M3 7h18v12H3zM3 11h18M7 15h3M16 4H6",
   cap: "M4 18a8 8 0 1 1 16 0M12 18l4-6M8 18h8",
+  yield: "M3 17l6-6 4 4 7-7M15 8h5v5M3 21h18",
   feed: "M6 16V11a6 6 0 1 1 12 0v5l2 2H4zM10 21h4",
   kill: "M12 3v8M6.3 6.3a8 8 0 1 0 11.4 0",
   x: "M6 6l12 12M18 6L6 18",

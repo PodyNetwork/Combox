@@ -6,8 +6,23 @@ import DateTimePicker from "../DateTimePicker.jsx";
 import { ReplyBox } from "./AgentLog.jsx";
 import {
   Avatar, Button, Chip, Empty, ErrorNote, Icon, Input, Loading, Modal, PageHead, Panel, Segmented, Textarea,
-  human, localDate, useApp, useCompanyApi, useLoad, useToast, usd,
+  ago, human, localDate, useApp, useCompanyApi, useLoad, useToast, usd, when,
 } from "../ui.jsx";
+
+// Where a task's hire stands, furthest stage first.
+function hiringStage(h) {
+  const n = (k, one, many) => `${h[k]} ${h[k] === 1 ? one : many}`;
+  if (h.kind === "ai_agent") return "Hiring an AI agent";
+  if (!h.posted_at) return "Job not posted yet";
+  if (h.contract_sent) return "Contract sent, awaiting signature";
+  if (h.interviewed) return `${n("interviewed", "candidate", "candidates")} interviewed`;
+  if (h.interviewing) return `Interviewing ${n("interviewing", "candidate", "candidates")}`;
+  if (h.shortlisted) return `${n("shortlisted", "candidate", "candidates")} shortlisted`;
+  if (h.applicants) return `${n("applicants", "applicant", "applicants")}, none in the running`;
+  return "Job posted, no applicants yet";
+}
+
+const BOARDS = { axom_board: "Combox board", upwork: "Upwork" };
 
 const COLUMNS = [
   { key: "queued", label: "Queued", dot: "bg-white/40" },
@@ -152,6 +167,23 @@ function Clamp({ text, lines = 3, className = "" }) {
   );
 }
 
+function HiringStatus({ h }) {
+  const { navigate } = useApp();
+  const since = h.posted_at || h.opened_at;
+  const where = h.posted_at ? ` on ${BOARDS[h.marketplace] || h.marketplace}` : "";
+  return (
+    <button
+      onClick={() => navigate("hiring")}
+      className="flex min-w-0 items-center gap-1.5 text-left text-xs text-amber hover:underline"
+      title={`No worker can do this yet, so Combox is hiring one${where}. ${h.posted_at ? "Posted" : "Opened"} ${when(since)}. Open Hiring.`}
+    >
+      <Icon name="hiring" size={12} className="shrink-0" />
+      <span className="truncate">{hiringStage(h)}</span>
+      <span className="shrink-0 text-dim">· {ago(since)}</span>
+    </button>
+  );
+}
+
 function TaskCard({ t, i, worker, busy, onRetry, onStartNow, onAnswer, onReview, onView }) {
   const asking = t.status === "blocked" && t.result?.waiting_for === "reply";
   const reviewable = worker?.kind === "human_freelancer" && t.status === "in_progress";
@@ -221,6 +253,8 @@ function TaskCard({ t, i, worker, busy, onRetry, onStartNow, onAnswer, onReview,
             <Avatar name={worker.name} kind={worker.kind} size={24} tag={false} />
             <span className="min-w-0 truncate text-xs text-mute">{worker.name}</span>
           </>
+        ) : t.hiring ? (
+          <HiringStatus h={t.hiring} />
         ) : (
           <span className="text-xs text-dim">{t.assignee ? "Assigned" : "Unassigned"}</span>
         )}

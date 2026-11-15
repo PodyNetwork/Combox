@@ -602,6 +602,42 @@ pub async fn process_open_requests(pool: &PgPool, cfg: &PolicyConfig, market: &d
     Ok(out)
 }
 
+/// Where a task's open hiring request stands, so the task can show why it
+/// has no worker yet. Candidate counts are by pipeline stage; `applicants`
+/// counts everyone who applied, including those since rejected or declined.
+#[derive(Debug, Clone, Serialize, sqlx::FromRow)]
+pub struct TaskHiring {
+    pub task_id: Uuid,
+    pub kind: String,
+    pub opened_at: DateTime<Utc>,
+    pub marketplace: Option<String>,
+    pub posted_at: Option<DateTime<Utc>>,
+    pub applicants: i64,
+    pub shortlisted: i64,
+    pub interviewing: i64,
+    pub interviewed: i64,
+    pub contract_sent: i64,
+}
+
+/// The open hiring request of every task that has one.
+pub async fn open_by_task(pool: &PgPool) -> Result<Vec<TaskHiring>, sqlx::Error> {
+    sqlx::query_as(
+        "SELECT h.task_id, h.kind, h.created_at AS opened_at, j.marketplace, j.created_at AS posted_at,
+                count(c.id) AS applicants,
+                count(c.id) FILTER (WHERE c.status = 'shortlisted') AS shortlisted,
+                count(c.id) FILTER (WHERE c.status = 'invited') AS interviewing,
+                count(c.id) FILTER (WHERE c.status = 'interviewed') AS interviewed,
+                count(c.id) FILTER (WHERE c.status = 'contract_sent') AS contract_sent
+           FROM axom.hiring_requests h
+           LEFT JOIN axom.job_postings j ON j.hiring_request_id = h.id
+           LEFT JOIN axom.candidates c ON c.job_posting_id = j.id
+          WHERE h.status = 'open' AND h.task_id IS NOT NULL
+          GROUP BY h.id, j.id",
+    )
+    .fetch_all(pool)
+    .await
+}
+
 // ---------------------------------------------------------------------------
 // Autonomous pipeline
 // ---------------------------------------------------------------------------

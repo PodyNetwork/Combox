@@ -99,6 +99,17 @@ class Reply:
     done: bool = False
 
 
+@dataclass(frozen=True)
+class Checkpoint:
+    """Where the interview was before an answer was heard (`Interview.rewind`)."""
+
+    state: str
+    q: int
+    followed_up: bool
+    turns: int
+    timed_out: bool
+
+
 DEFAULT_DURATION_SECS = 600
 WRAP_UP_SECS = 60
 # Main questions for an interview (follow-ups come on top); the AI always
@@ -278,6 +289,18 @@ class Interview:
                 return self.time_up()
             return self._answer(text)
         return Reply(None, done=True)
+
+    def checkpoint(self) -> Checkpoint:
+        return Checkpoint(self.state, self._q, self._followed_up, len(self.transcript), self.timed_out)
+
+    def rewind(self, cp: Checkpoint) -> None:
+        """Take back an answer and the reply to it, when the participant turns
+        out not to have finished it (they paused, then carried on): the whole
+        answer is then heard again as one. Only answers to questions are taken
+        back; consent, once recorded, is final."""
+        assert cp.state == "questions" and self.ended_by is None, "only an answer to a question can be taken back"
+        self.state, self._q, self._followed_up, self.timed_out = cp.state, cp.q, cp.followed_up, cp.timed_out
+        del self.transcript[cp.turns :]
 
     # -- consent -------------------------------------------------------------
     def _consent(self, text: str) -> Reply:

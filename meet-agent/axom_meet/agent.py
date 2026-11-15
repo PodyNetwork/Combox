@@ -48,6 +48,7 @@ from __future__ import annotations
 
 import asyncio
 import dataclasses
+import functools
 import logging
 import os
 import time
@@ -58,8 +59,9 @@ from livekit.plugins import silero
 
 from . import guards
 from .callback import fetch_keys, post_event
-from .interview import CLOSING, DECLINED, REASK, Interview, Job, plan_questions
+from .interview import CLOSING, DECLINED, REASK, Checkpoint, Interview, Job, plan_questions
 from .playback import presynthesize, ready_audio, replay, use_audio_buffer
+from .turns import MAX_WAIT_SECS, TURN_HANDLING, AnswerEndDetector
 from .voice import build_stt, build_tts, tts_provider
 
 log = logging.getLogger("axom-meet")
@@ -91,6 +93,24 @@ CALLBACK_ATTEMPTS = 3
 # Leaving on purpose (the Leave button, or the room being deleted), as
 # opposed to a dropped connection.
 LEFT_ON_PURPOSE = {rtc.DisconnectReason.CLIENT_INITIATED, rtc.DisconnectReason.ROOM_DELETED, rtc.DisconnectReason.USER_REJECTED}
+# Someone who starts talking again this soon after their answer was handed
+# over, before they have heard the reply to it in full, had not finished it
+# (`Interviewer._carried_on`): nobody answers a question they haven't heard.
+RESUME_WINDOW_SECS = 3.0
+# Sound shorter than this (a cough, a click) is not someone carrying on.
+MIN_RESUME_SECS = 0.3
+
+
+@dataclasses.dataclass
+class Answer:
+    """The answer to a question last handed to the interview, kept until the
+    participant moves on, so a part they add after a pause joins it."""
+
+    before: Checkpoint
+    text: str
+    at: float
+    # When the reply to it finished playing without being talked over.
+    heard_at: float | None = None
 
 
 class ClaudeLLM:
@@ -160,6 +180,12 @@ class Interviewer(Agent):
         self._tts = tts
         self._lines: dict[str, asyncio.Task] = {}
         self._acks = 0
+        self._answer: Answer | None = None
+        # When the participant started speaking (now), and when they first
+        # spoke for real since the last answer was handed over.
+        self._speech_started: float | None = None
+        self._resumed_at: float | None = None
+        self._closing_fallback: asyncio.Task | None = None
         for line in (*ACKNOWLEDGEMENTS, REASK, CLOSING, DECLINED):
             self._warm(line)
         self._since = time.monotonic()
@@ -223,27 +249,91 @@ class Interviewer(Agent):
             self._warm(q)
         log.info("meeting %s: %s questions ready", job.meeting_id, len(questions))
 
+    def user_speaking(self, speaking: bool) -> None:
+        """The participant started or stopped making sound (Silero)."""
+        now = time.monotonic()
+        if speaking:
+            self._speech_started = now
+            return
+        started, self._speech_started = self._speech_started, None
+        if started is not None and self._resumed_at is None and now - started >= MIN_RESUME_SECS:
+            self._resumed_at = started
+
+    def _carried_on(self, answer: Answer | None, resumed_at: float | None) -> bool:
+        """This turn continues the last answer: the participant paused, the
+        answer was handed over, and they started again within moments, before
+        the reply to it had played out."""
+        return (
+            answer is not None
+            and resumed_at is not None
+            and self.interview.ended_by is None
+            and resumed_at - answer.at <= RESUME_WINDOW_SECS
+            and (answer.heard_at is None or resumed_at < answer.heard_at)
+        )
+
+    def _reply_done(self, answer: Answer, handle) -> None:
+        if handle.interrupted:
+            return
+        answer.heard_at = time.monotonic()
+        # The reply played out, so any sound before it (a cough) did not
+        # interrupt it and was not the answer going on.
+        self._resumed_at = None
+
     async def on_user_turn_completed(self, turn_ctx, new_message) -> None:
         text = new_message.text_content or ""
+        resumed_at, self._resumed_at = self._resumed_at, None
         if not self._finished:
+            iv = self.interview
+            answer, self._answer = self._answer, None
             # Answer at once whenever the real reply needs a moment (the
             # questions or a follow-up still being written); it comes after.
-            if self.interview.state == "awaiting_consent":
+            if iv.state == "awaiting_consent":
                 if guards.classify_consent(text) == "granted" and not self._first_question_ready():
                     self._acknowledge()
                 await self._ensure_questions()
-            elif self.interview.will_think() and text.strip():
-                self._acknowledge()
-            reply = await asyncio.to_thread(self.interview.hear, text)
+            else:
+                if self._carried_on(answer, resumed_at):
+                    # They had paused, not finished: take the reply back and
+                    # hear the whole answer as one.
+                    log.info("meeting %s: the participant carried on after a pause; hearing the whole answer", iv.job.meeting_id)
+                    if self._closing_fallback:
+                        self._closing_fallback.cancel()
+                    iv.rewind(answer.before)
+                    text = f"{answer.text} {text}"
+                if iv.state == "questions":
+                    self._answer = Answer(iv.checkpoint(), text, time.monotonic())
+                if iv.will_think() and text.strip():
+                    self._acknowledge()
+            answer = self._answer
+            reply = await asyncio.to_thread(iv.hear, text)
+            # The closing line after the last answer can be talked over, in
+            # case that answer wasn't finished; every other goodbye is said
+            # in full before the call ends.
+            closing = reply.done and answer is not None and iv.state == "done" and not iv.timed_out
             if reply.say:
-                # The goodbye is said in full before the call ends.
-                handle = self._say(reply.say, allow_interruptions=not reply.done)
+                handle = self._say(reply.say, allow_interruptions=not reply.done or closing)
+                if answer is not None:
+                    handle.add_done_callback(functools.partial(self._reply_done, answer))
                 if reply.done:
                     await handle
+                    if closing and handle.interrupted:
+                        self._closing_fallback = asyncio.create_task(self._close_unless_carried_on())
+                        raise StopResponse()
             if reply.done:
                 await self._finish()
         # Never let the default LLM reply speak.
         raise StopResponse()
+
+    async def _close_unless_carried_on(self) -> None:
+        """The closing line was talked over: give the participant time to
+        finish (their turn then reopens the interview), else end the call."""
+        quiet_since = time.monotonic()
+        while time.monotonic() - quiet_since < MAX_WAIT_SECS + RESUME_WINDOW_SECS:
+            await asyncio.sleep(0.25)
+            if self._speech_started is not None:
+                quiet_since = time.monotonic()
+        if self.interview.finished():
+            await self._finish()
 
     async def welcome_back(self) -> None:
         """Someone came back to an empty room: repeat where the interview is."""
@@ -347,16 +437,15 @@ async def entrypoint(ctx: JobContext) -> None:
         log.info("meeting %s: voice stt=deepgram tts=%s, limit %ss", job.meeting_id, tts_provider(key), job.max_duration_secs)
         tts = build_tts(key)
         opening = asyncio.create_task(presynthesize(tts, job.disclosure))
-        # The local speech detector (Silero) decides when an answer has ended
-        # (0.7 s after the person stops) and when they talk over the
-        # interviewer. Deepgram alone was tried: an answer spoken over the
-        # interviewer was not handed over until the person left. LiveKit's
-        # default end-of-turn model is off: it held ~244 MB per process and,
-        # on a busy machine, missed its 1 s deadline after every answer.
+        # The local speech detector (Silero) hears when the person stops and
+        # when they talk over the interviewer; `turns` decides whether a
+        # pause ends the answer (0.7 s after a finished sentence, up to 2.5 s
+        # mid-thought, learning how this person pauses). Deepgram alone was
+        # tried: an answer spoken over the interviewer was not handed over
+        # until the person left. LiveKit's end-of-turn model is off: it held
+        # ~244 MB per process and, on a busy machine, missed its 1 s deadline.
         vad = ctx.proc.userdata.get("vad") or silero.VAD.load()
-        session = AgentSession(
-            stt=build_stt(key), tts=tts, vad=vad, turn_handling={"turn_detection": "vad", "endpointing": {"min_delay": 0.7}}
-        )
+        session = AgentSession(stt=build_stt(key), tts=tts, vad=vad, turn_handling={"turn_detection": AnswerEndDetector(), **TURN_HANDLING})
         return interview, questions, opening, session
 
     # The agent arrives when the join page opens: everything below is set up
@@ -377,6 +466,10 @@ async def entrypoint(ctx: JobContext) -> None:
                 "meeting %s: first words %.1fs after someone was in the room (%.1fs after the job arrived; opening line %s)",
                 job.meeting_id, now - joined, now - started, "pre-synthesized" if interviewer.opening_presynthesized else "spoken live",
             )
+
+    @session.on("user_state_changed")
+    def _user_state(ev) -> None:
+        interviewer.user_speaking(ev.new_state == "speaking")
 
     async def close_room() -> None:
         # `delete_room_on_close` starts this as soon as the session closes;
