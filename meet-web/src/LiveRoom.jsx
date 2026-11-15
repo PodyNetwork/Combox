@@ -3,14 +3,22 @@
 // opened in the lobby; `LiveRoom` is the call itself: participant tiles, live
 // captions from the agent session's transcriptions (both the interviewer and
 // the candidate), and controls.
+//
+// Weak networks: the voice comes first (the camera goes off on a poor
+// connection), and a dropped connection is retried for two minutes, as long
+// as the interviewer waits, with a notice saying so. The interview itself is
+// voice only: someone who missed a line asks the interviewer to repeat it.
 import { useEffect, useRef, useState } from "react";
 import { LiveKitRoom, RoomAudioRenderer, StartAudio, VideoTrack, isTrackReference, useIsSpeaking, useParticipants, useRoomContext, useTrackToggle, useTracks, useTranscriptions } from "@livekit/components-react";
-import { AudioPresets, ConnectionQuality, DisconnectReason, MediaDeviceFailure, ParticipantKind, Room as LkRoom, RoomEvent, Track, VideoPresets } from "livekit-client";
+import { AudioPresets, ConnectionQuality, DefaultReconnectPolicy, DisconnectReason, MediaDeviceFailure, ParticipantKind, Room as LkRoom, RoomEvent, Track, VideoPresets } from "livekit-client";
 import { Clock, Cpu, Record } from "iconsax-react";
 import { CaptionBand, ControlBar, Wave, initials } from "./Captions.jsx";
 import { Orb, Wordmark } from "./ui.jsx";
 
 const AGENT_RESEND_MS = 35000;
+// A dropped connection is retried for about two minutes: the interviewer
+// waits that long in an empty room (LiveKit's own policy gives up after 45 s).
+const RETRY_DELAYS_MS = [0, 300, 1200, 2700, 4800, ...Array(14).fill(7000)];
 const isAgent = (p) => !!p && (p.kind === ParticipantKind.AGENT || /^agent/i.test(p.identity));
 const nameOf = (p, fallback) => (isAgent(p) ? "Combox interviewer" : p?.isLocal ? "You" : p?.name || fallback || "Guest");
 // Built for weak mobile networks: the voice comes first. Speech-quality Opus
@@ -18,6 +26,7 @@ const nameOf = (p, fallback) => (isAgent(p) ? "Combox interviewer" : p?.isLocal 
 // one, so a lost packet isn't heard), sent at high priority; the camera is
 // small, sent as one encoding, and gives way first.
 const ROOM_OPTIONS = {
+  reconnectPolicy: new DefaultReconnectPolicy(RETRY_DELAYS_MS),
   adaptiveStream: true,
   dynacast: true,
   audioCaptureDefaults: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 },
@@ -140,17 +149,32 @@ function LiveRoom({ onDeviceIssue, onNoAgent }) {
   const cam = useTrackToggle({ source: Track.Source.Camera, onDeviceError: deviceError("camera") });
   const room = useRoomContext();
   const [cc, setCc] = useState(true);
+  const [weak, setWeak] = useState(false);
+  const [reconnecting, setReconnecting] = useState(false);
   // On a poor connection the camera is turned off, so the voice gets the
   // bandwidth; the person can turn it back on.
   useEffect(() => {
     const lp = room.localParticipant;
     const onQuality = (q, p) => {
-      if (p !== lp || (q !== ConnectionQuality.Poor && q !== ConnectionQuality.Lost) || !lp.isCameraEnabled) return;
+      if (p !== lp) return;
+      const poor = q === ConnectionQuality.Poor || q === ConnectionQuality.Lost;
+      setWeak(poor);
+      if (!poor || !lp.isCameraEnabled) return;
       lp.setCameraEnabled(false).catch(() => {});
       onDeviceIssue("Your connection is weak, so your camera was turned off to keep the conversation clear. Captions stay on.");
     };
+    const down = () => setReconnecting(true);
+    const up = () => setReconnecting(false);
     room.on(RoomEvent.ConnectionQualityChanged, onQuality);
-    return () => room.off(RoomEvent.ConnectionQualityChanged, onQuality);
+    room.on(RoomEvent.Reconnecting, down);
+    room.on(RoomEvent.SignalReconnecting, down);
+    room.on(RoomEvent.Reconnected, up);
+    return () => {
+      room.off(RoomEvent.ConnectionQualityChanged, onQuality);
+      room.off(RoomEvent.Reconnecting, down);
+      room.off(RoomEvent.SignalReconnecting, down);
+      room.off(RoomEvent.Reconnected, up);
+    };
   }, [room, onDeviceIssue]);
   // Until the interviewer has said something, show what it is doing, so a
   // quiet first few seconds don't look like a broken call.
@@ -170,10 +194,13 @@ function LiveRoom({ onDeviceIssue, onNoAgent }) {
     return () => clearInterval(t);
   }, [agent, onNoAgent]);
 
+  // One caption line per spoken segment. What a person says is sent again,
+  // whole, each time more of it is recognized, as a new stream with the same
+  // segment id: the line keeps that id, so it grows in place.
   const lines = transcriptions.map((t) => {
     const p = participants.find((x) => x.identity === t.participantInfo.identity);
     return {
-      id: t.streamInfo.id,
+      id: t.streamInfo.attributes?.["lk.segment_id"] || t.streamInfo.id,
       name: nameOf(p, t.participantInfo.identity),
       ai: isAgent(p),
       text: t.text,
@@ -194,6 +221,11 @@ function LiveRoom({ onDeviceIssue, onNoAgent }) {
     <div className="stage">
       <div className="stage-top" aria-live="polite">
         {status && <p className="ai-status"><span className="ai-status-dot" />{status}</p>}
+        {reconnecting ? (
+          <p className="ai-status net-status"><span className="ai-status-dot" />Reconnecting. Stay on this page: the interviewer is waiting for you.</p>
+        ) : (
+          weak && <p className="ai-status net-status">Your connection is weak. If you miss something, ask the interviewer to repeat it.</p>
+        )}
         {/* Shown only when the browser blocked sound until a click. */}
         <StartAudio label="Tap to hear the interviewer" className="start-audio" />
       </div>

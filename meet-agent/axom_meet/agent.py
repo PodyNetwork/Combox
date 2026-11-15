@@ -16,7 +16,12 @@ link expires, and ends the interview at `max_duration_secs` (15 minutes, sent by
 Speed: the agent is sent when the join page opens, so it loads the
 company's keys, starts its session (voice connections, audio track),
 records its opening line and starts writing the questions while the person
-is still in the lobby; it speaks the moment they enter.
+is still in the lobby; it speaks the moment they enter. Its voice is queued
+2 s ahead of the network (`playback`), so a busy machine does not break it up.
+
+Not being heard: a turn that only asks for the last line again gets it
+again, and a silence of `SILENCE_NUDGE_SECS` after a question, or speech
+that gave no words, is answered too. The interview is voice only.
 
 Questions: Claude writes the interview questions from the role
 (`interview.plan_questions`), from the moment the agent arrives; the owner's
@@ -58,8 +63,8 @@ from livekit.plugins import silero
 
 from . import guards
 from .callback import fetch_keys, post_event
-from .interview import CLOSING, DECLINED, REASK, Checkpoint, Interview, Job, plan_questions
-from .playback import presynthesize, ready_audio, replay
+from .interview import CLOSING, CONFIRM_END, CONSENT_ASK, CONTINUE, DECLINED, ENDED, REASK, REPEAT, STILL_HERE, Checkpoint, Interview, Job, Reply, plan_questions
+from .playback import presynthesize, ready_audio, replay, use_steady_voice
 from .turns import MAX_WAIT_SECS, TURN_HANDLING, AnswerEndDetector
 from .voice import build_stt, build_tts, tts_provider
 
@@ -98,6 +103,16 @@ LEFT_ON_PURPOSE = {rtc.DisconnectReason.CLIENT_INITIATED, rtc.DisconnectReason.R
 RESUME_WINDOW_SECS = 3.0
 # Sound shorter than this (a cough, a click) is not someone carrying on.
 MIN_RESUME_SECS = 0.3
+# Silence after a question before the interviewer says it has heard nothing
+# and asks again (twice at most, `interview.MAX_NUDGES`): the participant
+# may be muted, or their sound may not be arriving.
+SILENCE_NUDGE_SECS = 25.0
+# The participant spoke for at least `MIN_MISSED_SPEECH_SECS` and no words
+# came out of it within this long: ask them to say it again.
+NO_WORDS_SECS = 3.0
+MIN_MISSED_SPEECH_SECS = 1.0
+# Lines said from audio made in advance, besides the questions.
+FIXED_LINES = (REASK, CLOSING, DECLINED, ENDED, CONFIRM_END, CONTINUE, REPEAT, STILL_HERE, CONSENT_ASK)
 
 
 @dataclasses.dataclass
@@ -110,6 +125,16 @@ class Answer:
     at: float
     # When the reply to it finished playing without being talked over.
     heard_at: float | None = None
+
+
+def one_sentence(start: str, rest: str) -> str:
+    """Join a sentence that a pause cut in two ("I like to end the meeting." +
+    "With a recap."): speech-to-text closed the first part and capitalized
+    the second only because of the pause."""
+    first = rest.split(" ", 1)[0]
+    if not (first == "I" or first.startswith("I'")):
+        rest = rest[:1].lower() + rest[1:]
+    return f"{start.rstrip(' .')} {rest}"
 
 
 class ClaudeLLM:
@@ -185,7 +210,12 @@ class Interviewer(Agent):
         self._speech_started: float | None = None
         self._resumed_at: float | None = None
         self._closing_fallback: asyncio.Task | None = None
-        for line in (*ACKNOWLEDGEMENTS, REASK, CLOSING, DECLINED):
+        # One turn is handled at a time.
+        self._turn_lock = asyncio.Lock()
+        if opening is not None:
+            # The disclosure, for when it is asked for again.
+            self._lines[interview.job.disclosure] = opening
+        for line in (*ACKNOWLEDGEMENTS, *FIXED_LINES):
             self._warm(line)
         self._since = time.monotonic()
         if questions is not None:
@@ -279,49 +309,91 @@ class Interviewer(Agent):
         self._resumed_at = None
 
     async def on_user_turn_completed(self, turn_ctx, new_message) -> None:
-        text = new_message.text_content or ""
         resumed_at, self._resumed_at = self._resumed_at, None
-        if not self._finished:
+        await self._heard(new_message.text_content or "", resumed_at)
+        # Never let the default LLM reply speak.
+        raise StopResponse()
+
+    async def _heard(self, text: str, resumed_at: float | None) -> None:
+        """One finished participant turn: hand it to the interview and say its reply."""
+        async with self._turn_lock:
+            if self._finished:
+                return
             iv = self.interview
             answer, self._answer = self._answer, None
+            # Asking to end the call, or to hear the last line again, is
+            # never part of an answer.
+            request = guards.wants_to_end(text) or guards.repeat_request(text) is not None
             # Answer at once whenever the real reply needs a moment (the
             # questions or a follow-up still being written); it comes after.
             if iv.state == "awaiting_consent":
-                if guards.classify_consent(text) == "granted" and not self._first_question_ready():
-                    self._acknowledge()
-                await self._ensure_questions()
+                if not iv.is_request(text):
+                    if guards.classify_consent(text) == "granted" and not self._first_question_ready():
+                        self._acknowledge()
+                    await self._ensure_questions()
             else:
-                if self._carried_on(answer, resumed_at):
+                # What they say over "would you like to end the interview
+                # now?" is a yes or a no to it, or the rest of their sentence.
+                checking = iv.confirming_end()
+                if not request and not (checking and guards.yes_or_no(text) is not None) and self._carried_on(answer, resumed_at):
                     # They had paused, not finished: take the reply back and
                     # hear the whole answer as one.
                     log.info("meeting %s: the participant carried on after a pause; hearing the whole answer", iv.job.meeting_id)
                     if self._closing_fallback:
                         self._closing_fallback.cancel()
                     iv.rewind(answer.before)
-                    text = f"{answer.text} {text}"
-                if iv.state == "questions":
+                    text = one_sentence(answer.text, text) if checking else f"{answer.text} {text}"
+                if iv.state == "questions" and not request:
                     self._answer = Answer(iv.checkpoint(), text, time.monotonic())
-                if iv.will_think() and text.strip():
+                if text.strip() and iv.will_think(text):
                     self._acknowledge()
             answer = self._answer
             reply = await asyncio.to_thread(iv.hear, text)
+            if iv.ended_by == "requested":
+                log.info("meeting %s: the participant asked to end the interview", iv.job.meeting_id)
             # The closing line after the last answer can be talked over, in
             # case that answer wasn't finished; every other goodbye is said
             # in full before the call ends.
             closing = reply.done and answer is not None and iv.state == "done" and not iv.timed_out
             if reply.say:
-                handle = self._say(reply.say, allow_interruptions=not reply.done or closing)
+                handle = self._speak(reply, allow_interruptions=not reply.done or closing)
                 if answer is not None:
                     handle.add_done_callback(functools.partial(self._reply_done, answer))
                 if reply.done:
                     await handle
                     if closing and handle.interrupted:
                         self._closing_fallback = asyncio.create_task(self._close_unless_carried_on())
-                        raise StopResponse()
+                        return
             if reply.done:
                 await self._finish()
-        # Never let the default LLM reply speak.
-        raise StopResponse()
+
+    def _speak(self, reply: Reply, **kwargs):
+        """Say a reply: its short lead-in first, if it has one."""
+        if reply.lead:
+            self._say(reply.lead, **kwargs)
+        return self._say(reply.say, **kwargs)
+
+    async def silent(self) -> None:
+        """Nothing was heard for `SILENCE_NUDGE_SECS` after the interviewer
+        finished speaking: say so and ask again, in case the participant is
+        muted or their sound is not arriving (a "yes" said over the opening
+        line is not heard either)."""
+        if self._finished or not self.started or self._turn_lock.locked():
+            return
+        reply = self.interview.nudge()
+        if reply.say:
+            log.info("meeting %s: nothing heard for %.0fs; asking again", self.interview.job.meeting_id, SILENCE_NUDGE_SECS)
+            self._speak(reply)
+
+    async def no_words(self, speech_secs: float) -> None:
+        """The participant spoke but no words came through (their sound is
+        breaking up, or the transcriber failed): ask them to say it again."""
+        if self._finished or not self.started or speech_secs < MIN_MISSED_SPEECH_SECS or self._turn_lock.locked():
+            return
+        reply = self.interview.missed()
+        if reply.say:
+            log.info("meeting %s: %.1fs of speech gave no words; asking again", self.interview.job.meeting_id, speech_secs)
+            self._speak(reply)
 
     async def _close_unless_carried_on(self) -> None:
         """The closing line was talked over: give the participant time to
@@ -340,7 +412,12 @@ class Interviewer(Agent):
             return
         await asyncio.sleep(1.5)  # let them subscribe to the agent's audio first
         if not self._finished and (line := self.interview.resume()):
-            self.session.say(line)
+            try:
+                self.session.say(line)
+            except RuntimeError:
+                # The session closed while they were coming back (the agent's
+                # own connection to the room was lost): there is no call left.
+                log.info("meeting %s: the call closed before the welcome back", self.interview.job.meeting_id)
 
     async def _time_limit(self) -> None:
         """Hard stop at the interview's time limit."""
@@ -399,6 +476,7 @@ def prewarm(proc: JobProcess) -> None:
     """One-time setup when a worker process starts, so a call does none of
     it: the person who joined hears the interviewer within seconds."""
     proc.userdata["vad"] = silero.VAD.load()
+    use_steady_voice()
     import anthropic  # noqa: F401 (imported now, used per call)
     from livekit.plugins import deepgram  # noqa: F401
 
@@ -443,7 +521,14 @@ async def entrypoint(ctx: JobContext) -> None:
         # until the person left. LiveKit's end-of-turn model is off: it held
         # ~244 MB per process and, on a busy machine, missed its 1 s deadline.
         vad = ctx.proc.userdata.get("vad") or silero.VAD.load()
-        session = AgentSession(stt=build_stt(key), tts=tts, vad=vad, turn_handling={"turn_detection": AnswerEndDetector(), **TURN_HANDLING})
+        session = AgentSession(
+            stt=build_stt(key),
+            tts=tts,
+            vad=vad,
+            turn_handling={"turn_detection": AnswerEndDetector(), **TURN_HANDLING},
+            user_away_timeout=SILENCE_NUDGE_SECS,
+            transcription_timeout=NO_WORDS_SECS,
+        )
         return interview, questions, opening, session
 
     # The agent arrives when the join page opens: everything below is set up
@@ -465,9 +550,25 @@ async def entrypoint(ctx: JobContext) -> None:
                 job.meeting_id, now - joined, now - started, "pre-synthesized" if interviewer.opening_presynthesized else "spoken live",
             )
 
+    # Tasks started from event handlers, kept so they are not garbage-collected.
+    background: set[asyncio.Task] = set()
+
+    def spawn(coro) -> None:
+        task = asyncio.create_task(coro)
+        background.add(task)
+        task.add_done_callback(background.discard)
+
     @session.on("user_state_changed")
     def _user_state(ev) -> None:
+        if ev.new_state == "away":
+            # Silent since the interviewer stopped speaking.
+            spawn(interviewer.silent())
+            return
         interviewer.user_speaking(ev.new_state == "speaking")
+
+    @session.on("user_transcription_timeout")
+    def _no_words(ev) -> None:
+        spawn(interviewer.no_words(ev.speech_duration))
 
     async def close_room() -> None:
         # `delete_room_on_close` starts this as soon as the session closes;
@@ -490,7 +591,8 @@ async def entrypoint(ctx: JobContext) -> None:
         room=ctx.room,
         # People leaving is handled below: the call ends only when nobody is
         # left, so one person leaving never cuts off another.
-        room_options=room_io.RoomOptions(close_on_disconnect=False, delete_room_on_close=True),
+        # The interview is spoken: text sent to the room is not an answer.
+        room_options=room_io.RoomOptions(close_on_disconnect=False, delete_room_on_close=True, text_input=False),
     )
 
     # Wait for the candidate only until the join link expires.

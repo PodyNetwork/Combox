@@ -708,3 +708,231 @@ def test_a_last_answer_carried_on_over_the_goodbye_reopens_the_interview(monkeyp
     assert call.answers()[-1] == "I designed a logo, and I presented it to the board."
     assert call.session.said[-2:] == [CLOSING, "<call ended>"]
 
+
+
+# -- asking to end the call, or only talking about ending things -----------------
+
+# As speech-to-text writes them.
+END_REQUESTS = [
+    "I want to end the interview.", "I want to end the interview", "I wanna end the interview.", "I want to end this interview now.",
+    "I would like to end the interview.", "I'd like to end the interview, please.", "I want to end interview.", "I want to end this.",
+    "I want to end it here.", "I want to end.", "Okay, I want to end the interview.", "Sorry, I want to stop the interview.",
+    "I think we should end the interview.", "I think we should stop here.", "I need to end the call.", "Can we end the interview?",
+    "Could we stop the interview here, please?", "Please end the interview.", "End the interview.", "Stop the interview.",
+    "Let's end the interview.", "Let's end it here.", "I'm done with the interview.", "I don't want to continue.",
+    "I can't continue with this interview.", "I need to drop off the call.", "I have to go now.", "No, I want to end the interview.",
+    "That's it, I want to end the interview.", "I designed a fintech logo. I want to end the interview.", "I want to end my interview.",
+    "I'd rather not continue.", "I would rather stop here.",
+    "I'm going to end the interview here.", "We should end the interview.", "Okay, bye.", "I would like to end this.",
+]
+ANSWERS_ABOUT_ENDING = [
+    "When I spoke with the team I make sure to end the interview quickly.",
+    "When I spoke with the team, I make sure to end interview quickly.",
+    "I always end the meeting with clear action items.",
+    "We decided to end the call and regroup the next day.",
+    "I told the client we should stop the project.",
+    "I have to end the meeting on time usually.",
+    "I want to end the interview process with a clear decision for the candidate.",
+    "We should end the meeting once the agenda is covered.",
+    "I need to leave a buffer before deadlines.",
+    "As a recruiter, I end the interview by asking if they have questions.",
+    "I conduct user interviews, and I stop the interview when I have enough signal.",
+    "If a call runs long, I ask whether we can end the call and follow up by email.",
+    "Let's end the meeting, I said, because nobody was prepared.",
+    "First I said hello. Then I told them, I want to end the interview. They agreed. We rescheduled.",
+    "I'm done with the first milestone and moving to the second.",
+    "I can't continue a project without a clear brief.",
+    "That's all I have to add.",
+    "Yes, let's go.",
+]
+
+
+def test_every_way_of_asking_to_end_the_call_ends_it():
+    for line in END_REQUESTS:
+        assert guards.end_intent(line) == "clear", line
+        iv, said, _ = run(["Yes", line], llm=FakeLLM(follow_up="What was the hardest part?"))
+        assert said[-1] == ENDED and iv.ended_by == "requested", line
+        assert "What was the hardest part?" not in said, f"a follow-up was asked after: {line}"
+
+
+def test_an_answer_that_talks_about_ending_things_is_an_answer():
+    for answer in ANSWERS_ABOUT_ENDING:
+        assert guards.end_intent(answer) is None, answer
+        iv, said, _ = run(["Yes", answer])
+        assert iv.state == "questions" and said[-1] == job().questions[1], answer
+
+
+def test_a_possible_request_to_end_is_checked_before_anything_ends():
+    from axom_meet.interview import CONFIRM_END, CONTINUE
+
+    q1, q2 = job().questions
+    for line in ["I want to end the interview because my network is bad.", "I like to end the interview.", "Please stop.", "Are we done?", "I'm not interested anymore."]:
+        assert guards.end_intent(line) == "unsure", line
+        # Yes ends it.
+        iv, said, _ = run(["Yes", line, "Yes, please."])
+        assert said[-2:] == [CONFIRM_END, ENDED] and iv.ended_by == "requested", line
+        # No goes back to the same question, and the interview carries on.
+        iv, said, _ = run(["Yes", line, "No, sorry, let's continue.", "I designed a fintech logo."])
+        assert said[-3:] == [CONFIRM_END, q1, q2] and iv.state == "questions", line
+        assert iv.transcript[-3].text == f"{CONTINUE} {q1}"
+        # Anything short that is not a yes does not end the call either.
+        iv, said, _ = run(["Yes", line, "Okay."])
+        assert said[-1] == q1 and iv.state == "questions", line
+    # They went on with their answer instead: it is taken as the answer.
+    iv, said, _ = run(["Yes", "Please stop.", "Sorry, I meant that I stop the build when the tests fail, then I fix them."])
+    assert said[-1] == q2 and iv.state == "questions"
+    # Before consent, a yes ends with nothing recorded.
+    iv, said, events = run(["I like to end the interview.", "Yes."])
+    assert said[-2:] == [CONFIRM_END, ENDED_NO_CONSENT] and events[0]["granted"] is False
+
+
+def test_the_model_has_no_say_in_ending_the_call():
+    # Whatever the follow-up model writes, only the participant's own words
+    # (read by the fixed rules) end the call or raise the question.
+    for written in ["END_INTERVIEW", "END", "The candidate wants to stop."]:
+        iv, said, _ = run(["Yes", "When I spoke with the team I make sure to end interview quickly."], llm=FakeLLM(follow_up=written))
+        assert said[-1] == job().questions[1] and iv.state == "questions", written
+
+
+def test_asking_for_the_question_again_is_never_an_answer():
+    from axom_meet.interview import REPEAT, STILL_HERE
+
+    q1, q2 = job().questions
+    for line in ["Sorry, can you repeat that?", "Pardon?", "What was the question again?", "I didn't catch that.", "You're breaking up.", "Sorry, I didn't hear you. Could you repeat the question?"]:
+        assert guards.repeat_request(line) == "repeat", line
+        llm = FakeLLM(follow_up="What was the hardest part?")
+        iv, said, _ = run(["Yes", line], llm=llm)
+        assert said[-1] == q1 and iv.transcript[-1].text == f"{REPEAT} {q1}", line
+        assert llm.prompts == [], "no follow-up is written for it"
+        assert iv.hear("I designed a fintech logo.").say == "What was the hardest part?"
+        # The follow-up is the line repeated now.
+        assert iv.hear(line).say == "What was the hardest part?"
+        assert iv.resume().endswith("What was the hardest part?")
+    for line in ["Hello?", "Can you hear me?", "Are you still there?"]:
+        assert guards.repeat_request(line) == "check", line
+        iv, said, _ = run(["Yes", line])
+        assert iv.transcript[-1].text == f"{STILL_HERE} {q1}", line
+    for answer in ["Sorry, I was saying that I repeat the tests often.", "What I did was repeat the process.", "Hello, yes I consent.", "Yes."]:
+        assert guards.repeat_request(answer) is None, answer
+    # Before consent it is the disclosure that is said again, and it is not
+    # counted as an unclear answer.
+    iv, said, events = run(["Sorry, can you repeat that?", "Pardon?", "Yes, I consent."])
+    assert said == [DISCLOSURE, DISCLOSURE, DISCLOSURE, q1] and events[0]["granted"] is True
+
+
+def test_silence_gets_the_question_again_twice_then_the_interviewer_waits():
+    from axom_meet.interview import CONSENT_ASK, MAX_NUDGES, MISSED, NOT_HEARD
+
+    iv = Interview(job())
+    assert iv.nudge().say is None, "nothing before the interview starts"
+    iv.start()
+    r = iv.nudge()
+    assert (r.lead, r.say) == (NOT_HEARD, CONSENT_ASK)
+    iv.hear("Yes, I consent.")
+    said = [iv.nudge() for _ in range(MAX_NUDGES + 1)]
+    assert [r.say for r in said] == [job().questions[0]] * MAX_NUDGES + [None]
+    assert iv._q == 0, "the question is not skipped"
+    iv.hear("I designed a fintech logo.")
+    assert iv.nudge().say == job().questions[1], "a heard answer starts the count again"
+    assert iv.missed().say == MISSED
+    iv.hear("I iterate quickly.")
+    assert iv.nudge().say is None and iv.missed().say is None, "nothing after the goodbye"
+
+
+def test_the_goodbye_is_not_thanked_first_and_a_request_is_not_joined_to_the_last_answer(monkeypatch):
+    from axom_meet.agent import ACKNOWLEDGEMENTS
+    from axom_meet.interview import REPEAT
+
+    # Asking to end: no "Thank you." before the goodbye, and no follow-up.
+    call = _Call(monkeypatch, follow_up="What was the hardest part?")
+    q1, _ = call.iv.job.questions
+    call.turn("Yes, I consent.")
+    said = len(call.session.said)
+    call.turn("I want to end the interview.")
+    assert call.session.said[said:] == [ENDED, "<call ended>"]
+
+    # Said over the reply to an answer just given: the answer stands as it
+    # was, and the request is acted on by itself.
+    call = _Call(monkeypatch, follow_up="What was the hardest part?")
+    call.turn("Yes, I consent.")
+    call.session.talk_over = {"What was the hardest part?"}
+    call.turn("I designed a logo for a fintech.")
+    call.speak()
+    call.session.talk_over = set()
+    said = len(call.session.said)
+    call.turn("Sorry, can you repeat that?")
+    assert call.session.said[said:] == [REPEAT, "What was the hardest part?"]
+    assert call.answers()[-2:] == ["I designed a logo for a fintech.", "Sorry, can you repeat that?"]
+    call.speak()
+    said = len(call.session.said)
+    call.turn("Actually, can we end the interview?")
+    assert call.session.said[said:] == [ENDED, "<call ended>"]
+    assert not set(call.session.said[said:]) & set(ACKNOWLEDGEMENTS)
+
+    # A sentence cut by a pause that only sounded like a request is put back together.
+    call = _Call(monkeypatch)
+    call.turn("Yes, I consent.")
+    from axom_meet.interview import CONFIRM_END
+
+    call.session.talk_over = {CONFIRM_END}
+    call.turn("I like to end the meeting.")
+    assert call.session.said[-1] == CONFIRM_END
+    call.speak()
+    call.session.talk_over = set()
+    call.turn("With a recap for everyone.")
+    assert call.answers()[-1] == "I like to end the meeting with a recap for everyone."
+    assert call.iv.state == "questions" and call.iv._q == 1
+
+    # But a yes said over the check is the answer to it, not more of the sentence.
+    call = _Call(monkeypatch)
+    call.turn("Yes, I consent.")
+    call.session.talk_over = {CONFIRM_END}
+    call.turn("I like to end the interview.")
+    call.speak()
+    call.session.talk_over = set()
+    call.turn("Yes.")
+    assert call.session.said[-2:] == [ENDED, "<call ended>"]
+
+
+def test_silence_and_speech_without_words_are_answered(monkeypatch):
+    import asyncio
+
+    from axom_meet.interview import CONSENT_ASK, MISSED, NOT_HEARD
+
+    call = _Call(monkeypatch)
+    q1, _ = call.iv.job.questions
+    asyncio.run(call.probe.silent())
+    assert call.session.said[-2:] == [NOT_HEARD, CONSENT_ASK]
+    call.turn("Yes, I consent.")
+    asyncio.run(call.probe.no_words(0.2))  # a cough
+    assert call.session.said[-1] == q1
+    asyncio.run(call.probe.no_words(2.0))
+    assert call.session.said[-1] == MISSED
+    asyncio.run(call.probe.silent())
+    assert call.session.said[-2:] == [NOT_HEARD, q1]
+
+
+def test_the_steady_voice_hook_is_still_in_the_library():
+    # livekit-agents is pinned; this fails if an upgrade moves what
+    # `use_steady_voice` replaces or what `SteadyAudioOutput` builds on.
+    from livekit.agents.voice.room_io import _output, room_io
+
+    from axom_meet.playback import SteadyAudioOutput, _Frames, use_steady_voice
+
+    stock = _output._ParticipantAudioOutput
+    assert room_io._ParticipantAudioOutput in (stock, SteadyAudioOutput)
+    for name in ("_forward_audio", "_wait_for_playout", "_report_run", "pause", "resume", "clear_buffer", "flush", "capture_frame"):
+        assert hasattr(stock, name), name
+    use_steady_voice()
+    assert room_io._ParticipantAudioOutput is SteadyAudioOutput and issubclass(SteadyAudioOutput, stock)
+
+    # Frames taken back by a pause go ahead of the ones still waiting.
+    import asyncio
+
+    async def main():
+        q = _Frames()
+        q.send_nowait("c")
+        q.put_back(["a", "b"])
+        assert [await q.recv(), await q.recv(), q.recv_nowait()] == ["a", "b", "c"] and q.empty()
+
+    asyncio.run(main())

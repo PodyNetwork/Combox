@@ -6,10 +6,19 @@ one follow-up each) -> closing. Nothing is asked before consent is recorded.
 A declined (or twice unclear) consent ends the interview with no questions.
 
 The participant can end the call at any time by asking to (see
-`guards.wants_to_end`) or by leaving. Every way the call ends leaves a final
-outcome with Combox: results if consent was given, otherwise a recorded
+`guards.end_intent`) or by leaving. A clear request ends it at once; one that
+only might be a request is checked first ("would you like to end the
+interview now?"), because ending cannot be undone; an answer that merely
+talks about ending things is an answer. Fixed rules decide which it is, not
+the model: asked to judge, the follow-up model took "when I spoke with the
+team I make sure to end the interview quickly" for a request. Every way the call ends leaves a
+final outcome with Combox: results if consent was given, otherwise a recorded
 "no consent" (`consent` event, granted false), so the meeting closes and its
 join links stop working.
+
+A turn that only asks for the last line again ("sorry, can you repeat
+that?", "can you hear me?") gets that line again and is never taken as an
+answer; so does a silence (`nudge`), in case the participant cannot be heard.
 
 Questions: the agent writes them itself from the role (`plan_questions`).
 The owner's own questions, if any, are asked first. If no model is
@@ -97,6 +106,9 @@ class Turn:
 class Reply:
     say: str | None
     done: bool = False
+    # A short fixed line said just before `say` ("Of course."), kept apart so
+    # both can be played from audio made in advance.
+    lead: str | None = None
 
 
 @dataclass(frozen=True)
@@ -108,6 +120,8 @@ class Checkpoint:
     followed_up: bool
     turns: int
     timed_out: bool
+    asked: str | None = None
+    confirming_end: bool = False
 
 
 DEFAULT_DURATION_SECS = 600
@@ -132,6 +146,18 @@ ENDED = "Of course, we'll end the interview here. Thank you for your time. The h
 ENDED_NO_CONSENT = "Of course, we'll end here. Nothing has been recorded. The hiring team may contact you about other options. Goodbye."
 REASK = "Sorry, I need a clear answer before we begin: do you consent to this interview being recorded? Please say yes or no."
 WELCOME_BACK = "Welcome back. Let's pick up where we left off."
+CONFIRM_END = "Just to check: would you like to end the interview now? Please say yes or no."
+CONTINUE = "Okay, let's continue."
+REPEAT = "Of course."
+STILL_HERE = "Yes, I can hear you."
+CONSENT_ASK = "Do you consent to this interview being recorded? Please say yes or no."
+NOT_HEARD = "I haven't heard anything from you yet. If you're speaking, please check that your microphone is on."
+MISSED = "Sorry, I didn't catch that. Could you say it again?"
+# How often a silence is met with the question again before the interviewer just waits.
+MAX_NUDGES = 2
+# A reply to "would you like to end the interview now?" this short that is
+# neither a yes nor a no is not an answer to the question either.
+SHORT_REPLY_WORDS = 4
 
 
 def write_questions(llm: LLM, job: Job, count: int) -> list[str]:
@@ -207,6 +233,11 @@ class Interview:
     # Why the call ended early: "requested" (the participant asked) or "left".
     ended_by: str | None = None
     _started: float | None = None
+    # The question waiting for an answer (a planned one or a follow-up).
+    _asked: str | None = None
+    # "Would you like to end the interview now?" was just asked.
+    _confirming_end: bool = False
+    _nudges: int = 0
 
     # -- speaking -----------------------------------------------------------
     def _agent(self, text: str) -> str:
@@ -226,8 +257,35 @@ class Interview:
         if self.state == "awaiting_consent":
             return self._agent(f"{WELCOME_BACK} {self.job.disclosure}")
         if self.state == "questions" and self._q < len(self.job.questions):
-            return self._agent(f"{WELCOME_BACK} {self.job.questions[self._q]}")
+            return self._agent(f"{WELCOME_BACK} {self._asked or self.job.questions[self._q]}")
         return None
+
+    def _pending(self, *, short: bool = False) -> str:
+        """The line the participant has yet to answer."""
+        if self.state == "awaiting_consent":
+            return CONSENT_ASK if short else self.job.disclosure
+        return self._asked or self.job.questions[self._q]
+
+    def _again(self, lead: str, *, short: bool = False) -> Reply:
+        """Say the pending line again after `lead`; the interview stays where it is."""
+        line = self._pending(short=short)
+        self._agent(f"{lead} {line}")
+        return Reply(line, lead=lead)
+
+    def nudge(self) -> Reply:
+        """Nothing was heard for a while after a question: the participant may
+        be muted, or their sound is not arriving. Say so and ask again, a
+        couple of times at most."""
+        if self.state not in ("awaiting_consent", "questions") or self._nudges >= MAX_NUDGES:
+            return Reply(None)
+        self._nudges += 1
+        return self._again(NOT_HEARD, short=True)
+
+    def missed(self) -> Reply:
+        """The participant spoke but no words came through."""
+        if self.state not in ("awaiting_consent", "questions"):
+            return Reply(None)
+        return Reply(self._agent(MISSED))
 
     # -- timing ----------------------------------------------------------------
     def remaining(self) -> float:
@@ -280,18 +338,48 @@ class Interview:
         if self.finished():
             return Reply(None, done=True)
         self.transcript.append(Turn("participant", text, _now()))
-        if guards.wants_to_end(text):
+        self._nudges = 0
+        confirming, self._confirming_end = self._confirming_end, False
+        intent = guards.end_intent(text)
+        if intent == "clear":
             return self.end_requested()
+        if self.remaining() <= 0:
+            return self.time_up()
+        if confirming:
+            verdict = guards.yes_or_no(text)
+            if verdict is True or (verdict is None and intent == "unsure"):
+                return self.end_requested()
+            if verdict is False or len(text.split()) <= SHORT_REPLY_WORDS:
+                # Not ending (only a yes ends it): back to the question.
+                return self._again(CONTINUE, short=True)
+            # Neither yes nor no, and long: they went on with their answer.
+        elif intent == "unsure":
+            return self._confirm_end()
+        if kind := guards.repeat_request(text):
+            return self._again(STILL_HERE if kind == "check" else REPEAT)
         if self.state == "awaiting_consent":
             return self._consent(text)
         if self.state == "questions":
-            if self.remaining() <= 0:
-                return self.time_up()
             return self._answer(text)
         return Reply(None, done=True)
 
+    def _confirm_end(self) -> Reply:
+        """It may have been a request to end the call: ask, since ending
+        cannot be undone and they may only have been telling a story."""
+        self._confirming_end = True
+        return Reply(self._agent(CONFIRM_END))
+
+    def confirming_end(self) -> bool:
+        """The last thing said was "would you like to end the interview now?"."""
+        return self._confirming_end
+
+    def is_request(self, text: str) -> bool:
+        """The turn asks something of the interviewer (end the call, say that
+        again) and is not an answer, or part of one."""
+        return self._confirming_end or guards.end_intent(text) is not None or guards.repeat_request(text) is not None
+
     def checkpoint(self) -> Checkpoint:
-        return Checkpoint(self.state, self._q, self._followed_up, len(self.transcript), self.timed_out)
+        return Checkpoint(self.state, self._q, self._followed_up, len(self.transcript), self.timed_out, self._asked, self._confirming_end)
 
     def rewind(self, cp: Checkpoint) -> None:
         """Take back an answer and the reply to it, when the participant turns
@@ -300,12 +388,11 @@ class Interview:
         back; consent, once recorded, is final."""
         assert cp.state == "questions" and self.ended_by is None, "only an answer to a question can be taken back"
         self.state, self._q, self._followed_up, self.timed_out = cp.state, cp.q, cp.followed_up, cp.timed_out
+        self._asked, self._confirming_end = cp.asked, cp.confirming_end
         del self.transcript[cp.turns :]
 
     # -- consent -------------------------------------------------------------
     def _consent(self, text: str) -> Reply:
-        if self.remaining() <= 0:
-            return self.time_up()
         verdict = guards.classify_consent(text)
         if verdict is None and self._unclear == 0:
             self._unclear += 1
@@ -320,7 +407,11 @@ class Interview:
         if not self.job.questions:
             # Questions were never planned (should not happen): never stall.
             self.job.questions = list(self.job.fallback_questions) or list(GENERIC_QUESTIONS)
-        return Reply(self._agent(self.job.questions[0]))
+        return self._ask(self.job.questions[0])
+
+    def _ask(self, question: str) -> Reply:
+        self._asked = question
+        return Reply(self._agent(question))
 
     def _no_consent(self, statement: str) -> None:
         """The call ended before consent was given: record that once, so
@@ -339,22 +430,24 @@ class Interview:
             return Reply(self._agent(TIME_UP), done=True)
         if guards.mentions_pay_or_terms(text):
             # Refuse, and repeat the current question; never advance on it.
-            return Reply(self._agent(guards.PAY_TERMS_REFUSAL + " " + self.job.questions[self._q]))
+            return Reply(self._agent(guards.PAY_TERMS_REFUSAL + " " + self._pending()))
         if not self._followed_up and self.llm is not None:
             follow = guards.safe_follow_up(self._generate_follow_up(text))
             if follow:
                 self._followed_up = True
-                return Reply(self._agent(follow))
+                return self._ask(follow)
         self._q += 1
         self._followed_up = False
         if self._q >= len(self.job.questions):
             self.state = "done"
             return Reply(self._agent(CLOSING), done=True)
-        return Reply(self._agent(self.job.questions[self._q]))
+        return self._ask(self.job.questions[self._q])
 
-    def will_think(self) -> bool:
-        """The next answer goes to the model for a possible follow-up (the
-        participant would otherwise wait on it in silence)."""
+    def will_think(self, text: str | None = None) -> bool:
+        """The next answer (`text`, if given) goes to the model for a possible
+        follow-up (the participant would otherwise wait on it in silence)."""
+        if text is not None and (self.is_request(text) or guards.mentions_pay_or_terms(text)):
+            return False
         return self.state == "questions" and not self._followed_up and self.llm is not None and not self.wrapping_up() and self.remaining() > 0
 
     def _generate_follow_up(self, answer: str) -> str | None:
