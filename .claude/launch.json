@@ -28,20 +28,6 @@
       "runtimeArgs": ["--prefix", "site", "run", "preview", "--", "--port", "4175", "--strictPort"],
       "cwd": ".",
       "port": 4175
-    },
-    {
-      "name": "tmp-hiring-mock",
-      "runtimeExecutable": "python3",
-      "runtimeArgs": ["/private/tmp/claude-501/-Users-eax--Documents-StagXWork-Combox/0e7457a5-9a36-4475-8918-4b29c94c7ae4/scratchpad/mock.py", "/private/tmp/claude-501/-Users-eax--Documents-StagXWork-Combox/0e7457a5-9a36-4475-8918-4b29c94c7ae4/scratchpad/apps.json"],
-      "cwd": ".",
-      "port": 8099
-    },
-    {
-      "name": "tmp-admin-judge",
-      "runtimeExecutable": "env",
-      "runtimeArgs": ["VITE_JUDGE_MODE=true", "VITE_AXOM_API_URL=http://localhost:8099", "npx", "--prefix", "admin", "vite", "admin", "--port", "5179", "--strictPort"],
-      "cwd": ".",
-      "port": 5179
     }
   ]
 }
