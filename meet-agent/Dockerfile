@@ -10,12 +10,17 @@ COPY pyproject.toml ./
 ARG EXTRAS=""
 # The dependencies first, from pyproject.toml alone, so changing the agent's
 # code doesn't reinstall them. A current pip, patience for the large downloads
-# (av) on slow or flaky networks, and pip's download cache kept
+# (onnxruntime, av) on slow or flaky networks, and pip's download cache kept
 # between builds (a cache mount: not part of the image).
 RUN --mount=type=cache,target=/root/.cache/pip \
     pip install --upgrade pip \
  && EXTRAS="$EXTRAS" python -c "import os, tomllib; p = tomllib.load(open('pyproject.toml', 'rb'))['project']; extra = [d for e in os.environ['EXTRAS'].split(',') if e for d in p['optional-dependencies'][e]]; print('\n'.join(p['dependencies'] + extra))" > /tmp/requirements.txt \
  && pip install --retries 10 --timeout 120 --only-binary=:all: -r /tmp/requirements.txt
+# Fetch the plugins' model files (Silero VAD) into the image before the
+# agent's code is copied, so a code change doesn't download them again.
+USER agent
+RUN python -c "import importlib.util; from livekit.agents import Plugin; from livekit.plugins import deepgram, silero; importlib.util.find_spec('livekit.plugins.cartesia') and __import__('livekit.plugins.cartesia'); [p.download_files() for p in Plugin.registered_plugins]"
+USER root
 COPY axom_meet axom_meet
 RUN --mount=type=cache,target=/root/.cache/pip \
     pip install --no-deps --retries 10 --timeout 120 .

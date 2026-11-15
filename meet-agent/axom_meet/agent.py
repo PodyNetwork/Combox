@@ -54,7 +54,9 @@ import time
 
 from livekit import rtc
 from livekit.agents import Agent, AgentSession, JobContext, JobProcess, StopResponse, WorkerOptions, cli, room_io
+from livekit.plugins import silero
 
+from . import guards
 from .callback import fetch_keys, post_event
 from .interview import CLOSING, DECLINED, REASK, Interview, Job, plan_questions
 from .playback import presynthesize, ready_audio, replay, use_audio_buffer
@@ -160,6 +162,7 @@ class Interviewer(Agent):
         self._acks = 0
         for line in (*ACKNOWLEDGEMENTS, REASK, CLOSING, DECLINED):
             self._warm(line)
+        self._since = time.monotonic()
         if questions is not None:
             questions.add_done_callback(self._warm_questions)
 
@@ -169,8 +172,20 @@ class Interviewer(Agent):
 
     def _warm_questions(self, task: asyncio.Task) -> None:
         if not task.cancelled() and task.exception() is None:
+            log.info("meeting %s: questions written in %.1fs", self.interview.job.meeting_id, time.monotonic() - self._since)
             for q in task.result():
                 self._warm(q)
+
+    def _first_question_ready(self) -> bool:
+        task = self._questions
+        if task is None or not task.done() or task.cancelled() or task.exception() is not None:
+            return False
+        written = task.result()
+        return bool(written) and ready_audio(self._lines.get(written[0])) is not None
+
+    def _acknowledge(self) -> None:
+        self._say(ACKNOWLEDGEMENTS[self._acks % len(ACKNOWLEDGEMENTS)])
+        self._acks += 1
 
     def _say(self, text: str, **kwargs):
         """Say a line, from audio made in advance when it is ready."""
@@ -211,12 +226,14 @@ class Interviewer(Agent):
     async def on_user_turn_completed(self, turn_ctx, new_message) -> None:
         text = new_message.text_content or ""
         if not self._finished:
+            # Answer at once whenever the real reply needs a moment (the
+            # questions or a follow-up still being written); it comes after.
             if self.interview.state == "awaiting_consent":
+                if guards.classify_consent(text) == "granted" and not self._first_question_ready():
+                    self._acknowledge()
                 await self._ensure_questions()
             elif self.interview.will_think() and text.strip():
-                # Answer at once; the follow-up (or next question) comes after.
-                self._say(ACKNOWLEDGEMENTS[self._acks % len(ACKNOWLEDGEMENTS)])
-                self._acks += 1
+                self._acknowledge()
             reply = await asyncio.to_thread(self.interview.hear, text)
             if reply.say:
                 # The goodbye is said in full before the call ends.
@@ -291,9 +308,8 @@ class Interviewer(Agent):
 
 def prewarm(proc: JobProcess) -> None:
     """One-time setup when a worker process starts, so a call does none of
-    it: the person who joined hears the interviewer within seconds. No speech
-    model runs here: Deepgram detects speech and the end of each answer on its
-    servers, so a busy machine cannot fall behind the person talking."""
+    it: the person who joined hears the interviewer within seconds."""
+    proc.userdata["vad"] = silero.VAD.load()
     use_audio_buffer()
     import anthropic  # noqa: F401 (imported now, used per call)
     from livekit.plugins import deepgram  # noqa: F401
@@ -331,9 +347,12 @@ async def entrypoint(ctx: JobContext) -> None:
         log.info("meeting %s: voice stt=deepgram tts=%s, limit %ss", job.meeting_id, tts_provider(key), job.max_duration_secs)
         tts = build_tts(key)
         opening = asyncio.create_task(presynthesize(tts, job.disclosure))
-        # Deepgram decides when an answer has ended (see `build_stt`); LiveKit's
-        # default turn timing, as in Foreman, so replies come promptly.
-        session = AgentSession(stt=build_stt(key), tts=tts, vad=None, turn_detection="stt")
+        # The local speech detector (Silero) decides when an answer has ended
+        # and when the person talks over the interviewer, with LiveKit's default
+        # timing, as in Foreman. (Deepgram alone was tried: an answer spoken
+        # over the interviewer was not handed over until the person left.)
+        vad = ctx.proc.userdata.get("vad") or silero.VAD.load()
+        session = AgentSession(stt=build_stt(key), tts=tts, vad=vad)
         return interview, questions, opening, session
 
     # The agent arrives when the join page opens: everything below is set up

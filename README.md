@@ -724,7 +724,7 @@ observed end to end.
 
 **Libraries.** Rust: tokio, axum, sqlx (Postgres), reqwest, serde,
 ed25519-dalek, jsonwebtoken, rust_decimal, tracing. Python meeting agent:
-livekit-agents (Deepgram), anthropic. Web apps: React, Supabase JS,
+livekit-agents (Deepgram, Silero), anthropic. Web apps: React, Supabase JS,
 LiveKit components, lucide-react, iconsax-react. Full lists in
 `axom/Cargo.toml`, `meet-agent/pyproject.toml` and each app's `package.json`.
 

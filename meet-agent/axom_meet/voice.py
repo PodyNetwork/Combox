@@ -44,10 +44,7 @@ def build_stt(key: Key | Mapping[str, str] | None = None):
     from livekit.plugins import deepgram
 
     get = _lookup(key)
-    # Deepgram also detects speech and the end of an answer (the agent runs no
-    # local speech model): 500 ms of silence ends a phrase, about what the
-    # local model needed, and the session waits a moment more before it answers.
-    opts = {"api_key": get("DEEPGRAM_API_KEY"), "language": get("AXOM_MEET_STT_LANGUAGE") or "en", "endpointing_ms": 500}
+    opts = {"api_key": get("DEEPGRAM_API_KEY"), "language": get("AXOM_MEET_STT_LANGUAGE") or "en"}
     if model := get("AXOM_MEET_STT_MODEL"):
         opts["model"] = model
     return deepgram.STT(**opts)
