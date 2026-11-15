@@ -16,8 +16,7 @@ link expires, and ends the interview at `max_duration_secs` (15 minutes, sent by
 Speed: the agent is sent when the join page opens, so it loads the
 company's keys, starts its session (voice connections, audio track),
 records its opening line and starts writing the questions while the person
-is still in the lobby; it speaks the moment they enter. Its voice is buffered (`playback`) so a busy machine
-does not break it up.
+is still in the lobby; it speaks the moment they enter.
 
 Questions: Claude writes the interview questions from the role
 (`interview.plan_questions`), from the moment the agent arrives; the owner's
@@ -60,7 +59,7 @@ from livekit.plugins import silero
 from . import guards
 from .callback import fetch_keys, post_event
 from .interview import CLOSING, DECLINED, REASK, Checkpoint, Interview, Job, plan_questions
-from .playback import presynthesize, ready_audio, replay, use_audio_buffer
+from .playback import presynthesize, ready_audio, replay
 from .turns import MAX_WAIT_SECS, TURN_HANDLING, AnswerEndDetector
 from .voice import build_stt, build_tts, tts_provider
 
@@ -400,7 +399,6 @@ def prewarm(proc: JobProcess) -> None:
     """One-time setup when a worker process starts, so a call does none of
     it: the person who joined hears the interviewer within seconds."""
     proc.userdata["vad"] = silero.VAD.load()
-    use_audio_buffer()
     import anthropic  # noqa: F401 (imported now, used per call)
     from livekit.plugins import deepgram  # noqa: F401
 

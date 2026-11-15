@@ -481,25 +481,6 @@ def test_safe_question_guard():
 # -- playback ------------------------------------------------------------------------
 
 
-def test_the_agent_voice_buffer_is_raised_so_short_stalls_do_not_break_it(monkeypatch):
-    from livekit import rtc
-    from livekit.agents.voice.room_io import _output, room_io
-
-    from axom_meet.playback import AUDIO_BUFFER_MS, use_audio_buffer
-
-    class Source:
-        def __init__(self, sample_rate, num_channels, queue_size_ms=1000):
-            self.queue_size_ms = queue_size_ms
-
-    monkeypatch.setattr(rtc, "AudioSource", Source)
-    monkeypatch.setattr(room_io, "_ParticipantAudioOutput", room_io._ParticipantAudioOutput)
-    use_audio_buffer()
-    out_cls = room_io._ParticipantAudioOutput
-    assert issubclass(out_cls, _output._ParticipantAudioOutput), "livekit-agents moved its room audio output: re-check playback.py"
-    out = out_cls(object(), sample_rate=24000, num_channels=1, track_publish_options=None)
-    assert isinstance(out._audio_source, Source) and out._audio_source.queue_size_ms == AUDIO_BUFFER_MS
-
-
 def test_the_opening_line_is_played_from_presynthesized_audio_only_when_ready():
     import asyncio
 
