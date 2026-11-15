@@ -217,7 +217,7 @@ function NextCheck({ data, state, className }) {
       <PanelHead eyebrow="The signer" title="What happens next" />
       {state && (
         <div className="flex items-start gap-2.5">
-          <span className="mt-1.5"><StateDot tone={state.tone} /></span>
+          <StateDot tone={state.tone} />
           <p className="text-sm leading-relaxed"><span className="font-medium">{state.label}.</span> <span className="text-mute">{state.text}</span></p>
         </div>
       )}

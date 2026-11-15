@@ -11,7 +11,9 @@ export const fmt = (n, d = 2) => (n == null ? "—" : Number(n).toLocaleString(u
 export const pct = (apr) => (apr == null ? "—" : `${(Number(apr) * 100).toLocaleString(undefined, { maximumFractionDigits: 2 })}%`);
 
 /** The yield status and the switch, for the card and the page. */
-export function useTreasuryYield({ poll = 60000 } = {}) {
+// Polls the database-only status often enough that "Turning on/off" clears
+// soon after the signer's one-minute check.
+export function useTreasuryYield({ poll = 15000 } = {}) {
   const { notify } = useApp();
   const call = useCompanyApi();
   const yieldData = useLoad("/admin/treasury/yield", { poll });
@@ -51,14 +53,21 @@ const MOVING = { register: "Registering on Rhea", supply: "Supplying", withdraw:
 export function stateOf(data) {
   const plan = data?.plan;
   if (!data) return null;
-  if (!plan) return data.enabled ? { label: "Starting", tone: "sky", text: "Waiting for the signer's first check of the treasury." } : { label: "Off", tone: "mute", text: "Off. Turn it on and NEAR payroll can't spend this month earns in Rhea lending." };
+  if (!plan) return data.enabled ? { label: "Starting", tone: "sky", text: "Waiting for the signer's first check of the treasury." } : { label: "Off", tone: "mute", text: "Turn it on and NEAR payroll can't spend this month earns in Rhea lending." };
   const r = plan.reason || "";
   const b = balancesOf(plan);
   if (plan.action) return { label: MOVING[plan.action.kind] || "Moving", tone: "sky", text: r };
+  // The switch is saved at once; the plan catches up on the signer's next check.
+  const plannedOff = r.startsWith("treasury yield is off");
+  if (data.enabled && plannedOff) return { label: "Turning on", tone: "sky", text: "Saved. On its next check, within a minute, the signer supplies what payroll can't spend this month." };
+  if (!data.enabled) {
+    return b.supplied >= 0.001
+      ? { label: "Turning off", tone: "sky", text: "Saved. On its next check, within a minute, the signer withdraws everything from Rhea with interest." }
+      : { label: "Off", tone: "mute", text: "Everything is liquid in the treasury." };
+  }
   if (r.includes("fund the treasury")) return { label: "Needs funding", tone: "amber", text: `Liquid NEAR is below the floor payroll needs, and nothing is in Rhea to pull back. Add NEAR to the treasury or lower the monthly cap.` };
   if (r.startsWith("no fresh NEAR price")) return { label: "No price", tone: "amber", text: "No fresh NEAR price, so nothing new is supplied. Payouts already owed stay covered." };
   if (r.includes("paused")) return { label: "Rhea paused", tone: "amber", text: r };
-  if (r.startsWith("treasury yield is off")) return { label: "Off", tone: "mute", text: b.supplied > 0 ? r : "Off. Everything is liquid in the treasury." };
   if (r.startsWith("holding")) {
     return b.supplied > 0
       ? { label: "Earning", tone: "lime", text: `${fmt(b.supplied, 3)} NEAR is earning in Rhea; ${fmt(b.liquid, 3)} NEAR stays liquid for payroll.` }
@@ -68,8 +77,14 @@ export function stateOf(data) {
 }
 
 const DOT = { lime: "bg-lime", sky: "bg-sky", amber: "bg-amber", ember: "bg-ember", mute: "bg-white/30" };
+// Sits in a box one text line tall, so it centers on the first line of
+// whatever text it leads (use with leading-relaxed).
 export function StateDot({ tone }) {
-  return <span className={`inline-block shrink-0 rounded-full size-2 ${DOT[tone] || DOT.mute} ${tone === "sky" ? "pulse-dot" : ""}`} aria-hidden="true" />;
+  return (
+    <span className="flex h-[1.625em] shrink-0 items-center" aria-hidden="true">
+      <span className={`block rounded-full size-2 ${DOT[tone] || DOT.mute} ${tone === "sky" ? "pulse-dot" : ""}`} />
+    </span>
+  );
 }
 
 export function YieldSwitch({ y, small = true }) {
@@ -117,7 +132,7 @@ export function TreasuryYieldCard({ i = 0, className = "" }) {
       )}
       {state && (
         <p className="mt-4 flex items-start gap-2 text-xs leading-relaxed text-mute">
-          <span className="mt-1"><StateDot tone={state.tone} /></span>
+          <StateDot tone={state.tone} />
           <span className="line-clamp-2" title={plan?.reason}><span className="font-medium text-fog">{state.label}.</span> {state.text}</span>
         </p>
       )}
