@@ -415,35 +415,18 @@ pub async fn delete_candidate(State(s): State<AppState>, headers: HeaderMap, Pat
 /// hiring. What applicants wrote is untrusted and shown as plain text.
 pub async fn list_applications(State(s): State<AppState>, headers: HeaderMap) -> Response {
     guard!(s, headers);
-    type Row = (Uuid, Uuid, String, String, String, Vec<String>, String, DateTime<Utc>, Option<Uuid>, Option<String>, Option<f64>, Option<f64>, Option<String>, Option<i32>);
-    let rows: Result<Vec<Row>, _> = sqlx::query_as(
-        "SELECT a.id, a.job_id, j.title, a.name, a.email, a.skills, a.message, a.created_at,
-                c.id, c.status, c.shortlist_score, c.rubric_score, f.filename, f.size_bytes
-         FROM axom.board_applications a
-         JOIN axom.board_jobs j ON j.id = a.job_id
-         LEFT JOIN axom.job_postings p ON p.marketplace = 'axom_board' AND p.external_job_id = a.job_id::text
-         LEFT JOIN axom.candidates c ON c.job_posting_id = p.id AND c.external_applicant_id = a.id::text
-         LEFT JOIN axom.board_application_cvs f ON f.application_id = a.id
-         WHERE a.name <> '[deleted]'
-         ORDER BY a.created_at DESC LIMIT 500",
-    )
-    .fetch_all(&s.pool)
-    .await;
-    match rows {
-        Ok(rows) => {
-            let list: Vec<Value> = rows
-                .into_iter()
-                .map(|(id, job_id, job_title, name, email, skills, message, created_at, candidate_id, status, shortlist, rubric, cv_name, cv_size)| {
-                    json!({
-                        "id": id, "job_id": job_id, "job_title": job_title, "name": name, "email": email, "skills": skills,
-                        "untrusted_message": message, "created_at": created_at, "candidate_id": candidate_id,
-                        "status": status.unwrap_or_else(|| "applied".into()), "shortlist_score": shortlist, "interview_score": rubric,
-                        "cv": cv_name.map(|n| json!({ "filename": n, "size_bytes": cv_size })),
-                    })
-                })
-                .collect();
-            reply(StatusCode::OK, json!({ "applications": list }))
-        }
+    match axom_hr::applications::list(&s.pool).await {
+        Ok(list) => reply(StatusCode::OK, json!({ "applications": list, "steps": axom_hr::applications::STEPS })),
+        Err(e) => internal(e),
+    }
+}
+
+/// One application with its progress log, skill match and interview scores.
+pub async fn application(State(s): State<AppState>, headers: HeaderMap, Path(id): Path<Uuid>) -> Response {
+    guard!(s, headers);
+    match axom_hr::applications::detail(&s.pool, id).await {
+        Ok(Some(v)) => reply(StatusCode::OK, v),
+        Ok(None) => reply(StatusCode::NOT_FOUND, json!({ "error": "no such application" })),
         Err(e) => internal(e),
     }
 }

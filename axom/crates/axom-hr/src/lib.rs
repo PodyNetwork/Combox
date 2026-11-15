@@ -2,6 +2,7 @@
 //! payouts, owner notifications, and the HR agent's proposal gate.
 
 pub mod agent;
+pub mod applications;
 pub mod approvals;
 pub mod board;
 pub mod cap;

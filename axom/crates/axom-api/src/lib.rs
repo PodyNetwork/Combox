@@ -168,6 +168,7 @@ pub fn routes(state: AppState) -> Router {
         .route("/admin/kill-switch", get(admin::kill_switch_state).post(admin::set_kill_switch))
         .route("/admin/candidates/{id}/delete", post(admin::delete_candidate))
         .route("/admin/applications", get(admin::list_applications))
+        .route("/admin/applications/{id}", get(admin::application))
         .route("/admin/applications/{id}/cv", get(admin::application_cv))
         // Admin-defined tools (MCP servers, webhooks) and worker allowlists.
         .route("/admin/tools", get(admin::list_tools).post(admin::create_tool_server))

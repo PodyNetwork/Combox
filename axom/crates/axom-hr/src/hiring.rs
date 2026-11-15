@@ -213,27 +213,58 @@ pub fn shortlist_score(job_skills: &[String], profile_skills: &[String], message
     if job_skills.is_empty() {
         return 0.0;
     }
+    let hits: f64 = skill_matches(job_skills, profile_skills, message).iter().map(|(_, m)| m.points()).sum();
+    hits / job_skills.len() as f64
+}
+
+/// How one of the job's skills matched an applicant (see [`shortlist_score`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SkillMatch {
+    /// The applicant listed it (1 point).
+    Listed,
+    /// They listed a related word, e.g. "designer" for `visual_design` (half a point).
+    Related,
+    /// Only their cover letter mentions it (half a point).
+    Mentioned,
+    Missing,
+}
+
+impl SkillMatch {
+    pub fn points(self) -> f64 {
+        match self {
+            SkillMatch::Listed => 1.0,
+            SkillMatch::Related | SkillMatch::Mentioned => 0.5,
+            SkillMatch::Missing => 0.0,
+        }
+    }
+}
+
+/// Each of the job's skills with how the applicant matched it, in the job's order.
+pub fn skill_matches(job_skills: &[String], profile_skills: &[String], message: &str) -> Vec<(String, SkillMatch)> {
     let norm = |s: &str| s.to_lowercase().split(|c: char| !c.is_alphanumeric()).filter(|w| !w.is_empty()).collect::<Vec<_>>().join("_");
     // Words of four letters or more; one starting with the other counts as related ("design", "designer").
     let words = |s: &str| norm(s).split('_').filter(|w| w.len() >= 4).map(String::from).collect::<Vec<_>>();
     let profile: Vec<String> = profile_skills.iter().map(|p| norm(p)).collect();
     let profile_words: Vec<String> = profile_skills.iter().flat_map(|p| words(p)).collect();
     let msg = message.to_lowercase();
-    let hits: f64 = job_skills
+    job_skills
         .iter()
-        .map(|s| {
-            let s = norm(s);
+        .map(|skill| {
+            let s = norm(skill);
             let related = words(&s).iter().any(|w| profile_words.iter().any(|p| p.starts_with(w.as_str()) || w.starts_with(p.as_str())));
-            if profile.contains(&s) {
-                1.0
-            } else if related || msg.contains(&s.replace('_', " ")) {
-                0.5
+            let m = if profile.contains(&s) {
+                SkillMatch::Listed
+            } else if related {
+                SkillMatch::Related
+            } else if msg.contains(&s.replace('_', " ")) {
+                SkillMatch::Mentioned
             } else {
-                0.0
-            }
+                SkillMatch::Missing
+            };
+            (skill.clone(), m)
         })
-        .sum();
-    hits / job_skills.len() as f64
+        .collect()
 }
 
 /// Fetch applicants and shortlist the top `n` (score > 0) of those not yet
@@ -415,6 +446,7 @@ pub async fn record_interview_score(pool: &PgPool, cfg: &PolicyConfig, candidate
     let (mstatus, scores): (String, Option<Value>) = sqlx::query_as("SELECT status, scores FROM axom.meetings WHERE id = $1").bind(meeting_id).fetch_one(pool).await?;
     if mstatus == "consent_declined" {
         sqlx::query("UPDATE axom.candidates SET status = 'declined', updated_at = now() WHERE id = $1").bind(candidate_id).execute(pool).await?;
+        audit_ev(pool, &Actor::agent("hr"), "hiring.decline", "declined", json!({ "candidate_id": candidate_id, "meeting_id": meeting_id, "stage": "interview" }), "the candidate declined to be recorded at the start of the AI interview", cfg).await?;
         return Err(HiringError::State("candidate declined the recorded interview".into()));
     }
     let scores = scores.filter(|_| mstatus == "completed").ok_or_else(|| HiringError::State(format!("interview is {mstatus}")))?;
@@ -533,6 +565,7 @@ pub async fn complete_hire(pool: &PgPool, cfg: &PolicyConfig, contracts: &dyn Co
         SubmissionStatus::Declined => {
             sqlx::query("UPDATE axom.candidates SET status = 'declined', updated_at = now() WHERE id = $1").bind(candidate_id).execute(pool).await?;
             db::transition(pool, &Actor::System, worker_id, WorkerStatus::Fired, "contract declined").await.map_err(|e| HiringError::State(e.to_string()))?;
+            audit_ev(pool, &Actor::System, "hiring.decline", "declined", json!({ "candidate_id": candidate_id, "worker_id": worker_id, "stage": "contract" }), "the candidate declined the contract", cfg).await?;
             return Ok(false);
         }
         _ => return Ok(false),
@@ -793,10 +826,15 @@ pub async fn advance_hiring(pool: &PgPool, cfg: &PolicyConfig, svc: &HiringServi
             .bind(posting)
             .execute(pool)
             .await?;
-            sqlx::query("UPDATE axom.candidates SET status = 'rejected', updated_at = now() WHERE job_posting_id = $1 AND status IN ('applied','shortlisted','invited','interviewed')")
-                .bind(posting)
-                .execute(pool)
-                .await?;
+            let others: Vec<Uuid> = sqlx::query_scalar(
+                "UPDATE axom.candidates SET status = 'rejected', updated_at = now() WHERE job_posting_id = $1 AND status IN ('applied','shortlisted','invited','interviewed') RETURNING id",
+            )
+            .bind(posting)
+            .fetch_all(pool)
+            .await?;
+            if !others.is_empty() {
+                audit_ev(pool, &Actor::agent("hr"), "hiring.close_others", "rejected", json!({ "job_posting_id": posting, "hired_candidate_id": c, "candidates": others }), "the position was filled by another candidate", cfg).await?;
+            }
             let (worker_id,): (Uuid,) = sqlx::query_as("SELECT worker_id FROM axom.candidates WHERE id = $1").bind(c).fetch_one(pool).await?;
             let welcome = async {
                 let token = issue_intake_token(pool, worker_id).await?;

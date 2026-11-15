@@ -1,10 +1,10 @@
 // Video meetings and AI interviews: create a room, dispatch the AI
 // interviewer, and read consent, scores, summary, and transcript.
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import DateTimePicker from "../DateTimePicker.jsx";
 import {
-  Badge, Button, Empty, ErrorNote, Eyebrow, Icon, Input, Loading, Modal, PageHead, Panel, STATUS_TONE, Textarea,
-  human, useApp, useCompanyApi, useLoad, when,
+  Badge, Button, Empty, ErrorNote, Eyebrow, Icon, Input, Loading, Modal, PageHead, Panel, STATUS_TONE, Segmented, Textarea,
+  ago, human, useApp, useCompanyApi, useLoad, when,
 } from "../ui.jsx";
 
 // The role, for the AI to write its questions from. The AI disclosure,
@@ -12,19 +12,60 @@ import {
 const DEFAULT_INSTRUCTIONS = "";
 const safeHref = (u) => (/^https?:\/\//i.test(u || "") ? u : undefined);
 
+// Which statuses each filter shows; "all" shows everything.
+const FILTERS = {
+  open: ["scheduled", "dispatched"],
+  completed: ["completed"],
+  ended: ["consent_declined", "cancelled", "expired"],
+  all: null,
+};
+const FILTER_LABEL = { open: "Open", completed: "Completed", ended: "Declined or ended", all: "All" };
+const EMPTY_TEXT = {
+  open: "No interview is waiting to happen. Combox books one when it shortlists an applicant.",
+  completed: "No interview has finished yet.",
+  ended: "No interview was declined, cancelled or left to expire.",
+  all: "No interviews match.",
+};
+const isOpen = (m) => FILTERS.open.includes(m.status);
+const avgScore = (scores) => {
+  const v = scores ? Object.values(scores).map(Number).filter((n) => !Number.isNaN(n)) : [];
+  return v.length ? v.reduce((a, b) => a + b, 0) / v.length : null;
+};
+// Open interviews first, soonest first; then everything else, latest first.
+const byRelevance = (a, b) => {
+  if (isOpen(a) !== isOpen(b)) return isOpen(a) ? -1 : 1;
+  const d = new Date(a.scheduled_at) - new Date(b.scheduled_at);
+  return isOpen(a) ? d : -d;
+};
+
 export default function Meetings() {
-  const { data, error, loading, reload } = useLoad("/admin/meetings");
+  // Polled, so interviews Combox books, and their progress, show up without a reload.
+  const { data, error, loading, reload } = useLoad("/admin/meetings", { poll: 15000 });
   const [open, setOpen] = useState(null);
   const [wizard, setWizard] = useState(null);
+  const [filter, setFilter] = useState(null);
+  const [query, setQuery] = useState("");
   // Join links are only returned once, at creation (the server keeps a hash).
   // Keep them for this tab so they stay reachable from the interview page.
   const [joinLinks, setJoinLinks] = useState({});
   // Bumped after create/dispatch so the open detail panel reloads too.
   const [version, setVersion] = useState(0);
-  const list = data?.meetings || [];
+  const all = useMemo(() => [...(data?.meetings || [])].sort(byRelevance), [data]);
+  const count = (f) => (FILTERS[f] ? all.filter((m) => FILTERS[f].includes(m.status)).length : all.length);
+  // Start on Open when something is open, else on All.
+  const active = filter ?? (data && count("open") === 0 ? "all" : "open");
+  const q = query.trim().toLowerCase();
+  const list = all.filter(
+    (m) =>
+      (!FILTERS[active] || FILTERS[active].includes(m.status)) &&
+      (!q || m.title.toLowerCase().includes(q) || m.invitees.some((i) => i.toLowerCase().includes(q))),
+  );
+  // Keep a visible interview selected as the filter or search changes (a
+  // room created a moment ago may not be in the list yet; keep that one).
   useEffect(() => {
-    if (!open && list.length) setOpen(list[0].id);
-  }, [list, open]);
+    const known = open == null || all.some((m) => m.id === open);
+    if (list.length && known && !list.some((m) => m.id === open)) setOpen(list[0].id);
+  }, [all, list, open]);
 
   return (
     <>
@@ -34,33 +75,67 @@ export default function Meetings() {
         </Button>
       </PageHead>
       <p className="reveal -mt-2 mb-6 max-w-2xl text-sm text-mute">AI interviews and meetings. The interviewer always says it's an AI and asks consent before recording.</p>
+      {all.length > 0 && (
+        <div className="reveal mb-5 flex flex-wrap items-center gap-3" style={{ "--i": 1 }}>
+          <div className="scrollbar-none -mx-4 max-w-[calc(100%+2rem)] overflow-x-auto px-4 sm:mx-0 sm:max-w-full sm:px-0">
+            <Segmented
+              ariaLabel="Show interviews"
+              value={active}
+              onChange={setFilter}
+              options={Object.keys(FILTERS).map((f) => ({ value: f, label: `${FILTER_LABEL[f]} ${count(f)}` }))}
+            />
+          </div>
+          <label className="relative w-full sm:ml-auto sm:w-64">
+            <span className="sr-only">Search interviews</span>
+            <Icon name="search" size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-dim" />
+            <input
+              type="search"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search by role or email"
+              className="w-full rounded-full border border-white/10 bg-black/40 py-2 pl-9 pr-3 text-sm text-fog placeholder:text-dim transition focus:border-lime/60 focus:outline-none focus:ring-4 focus:ring-lime/10"
+            />
+          </label>
+        </div>
+      )}
       <ErrorNote error={error} />
       {loading && <Loading rows={4} />}
-      {data && list.length === 0 && <Empty title="No interviews yet" text="Interviews appear here when Combox shortlists candidates. You can also create a room yourself." />}
+      {data && all.length === 0 && <Empty title="No interviews yet" text="Interviews appear here when Combox shortlists candidates. You can also create a room yourself." />}
+      {all.length > 0 && list.length === 0 && (
+        <Empty
+          title={q ? "Nothing matches your search" : `No ${FILTER_LABEL[active].toLowerCase()} interviews`}
+          text={q ? "Try a different role or email, or clear the search." : EMPTY_TEXT[active]}
+        />
+      )}
       {list.length > 0 && (
         <div className="grid gap-4 xl:grid-cols-[minmax(0,22rem)_minmax(0,1fr)]">
-          <div className="scrollbar-none -mx-4 flex gap-2 overflow-x-auto px-4 pb-1 sm:-mx-8 sm:px-8 xl:mx-0 xl:block xl:space-y-2 xl:overflow-visible xl:px-0">
+          <div className="scrollbar-none -mx-4 flex gap-2 overflow-x-auto px-4 pb-1 sm:-mx-8 sm:px-8 xl:sticky xl:top-6 xl:mx-0 xl:block xl:max-h-[calc(100vh-3rem)] xl:space-y-2 xl:self-start xl:overflow-y-auto xl:px-0 xl:pr-1">
             {list.map((m, i) => {
               const d = new Date(m.scheduled_at);
               const on = m.id === open;
+              const live = isOpen(m);
+              const avg = avgScore(m.scores);
               return (
                 <button
                   key={m.id}
                   onClick={() => setOpen(m.id)}
                   aria-current={on ? "true" : undefined}
-                  style={{ "--i": i }}
-                  className={`reveal flex w-72 shrink-0 items-center gap-3 rounded-2xl p-3 text-left ring-1 ring-inset transition xl:w-full ${on ? "bg-white/6 ring-lime/40" : "bg-white/2 ring-white/5 hover:bg-white/4"}`}
+                  style={{ "--i": Math.min(i, 12) }}
+                  className={`reveal flex w-72 shrink-0 items-center gap-3 rounded-2xl p-3 text-left ring-1 ring-inset transition xl:w-full ${on ? "bg-white/6 ring-lime/40" : live ? "bg-violet/5 ring-violet/20 hover:bg-violet/10" : "bg-white/2 ring-white/5 hover:bg-white/4"}`}
                 >
                   <span className={`flex shrink-0 flex-col items-center justify-center rounded-xl leading-none size-14 ${on ? "bg-lime text-ink" : "bg-white/5"}`}>
                     <span className="font-mono text-[9px] uppercase opacity-70">{d.toLocaleString(undefined, { month: "short" })}</span>
                     <span className="font-display text-xl font-semibold">{d.getDate()}</span>
                   </span>
                   <span className="min-w-0 flex-1">
-                    <span className="block truncate text-sm font-medium">{m.title}</span>
-                    <span className="block truncate text-xs text-mute">
-                      {d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })} · {m.invitees.join(", ")}
+                    <span className="block truncate text-sm font-medium" title={m.title}>{m.title}</span>
+                    <span className="block truncate text-xs text-mute" title={`${when(m.scheduled_at)} · ${m.invitees.join(", ")}`}>
+                      {live ? ago(m.scheduled_at) : d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })} · {m.invitees.join(", ")}
                     </span>
-                    <span className="mt-1 block"><Badge tone={STATUS_TONE[m.status]} dot={m.status === "dispatched"}>{human(m.status)}</Badge></span>
+                    <span className="mt-1 flex items-center gap-2">
+                      <Badge tone={STATUS_TONE[m.status]} dot={m.status === "dispatched"}>{human(m.status)}</Badge>
+                      {avg != null && <span className={`num text-[11px] ${avg >= 3.5 ? "text-lime" : avg >= 3 ? "text-amber" : "text-ember"}`}>{avg.toFixed(1)} / 5</span>}
+                    </span>
                   </span>
                 </button>
               );
@@ -82,7 +157,11 @@ export default function Meetings() {
         }}
         onCreated={(id, links) => {
           setJoinLinks((m) => ({ ...m, [id]: links }));
+          // A new room is open: show it, whatever the filter was.
+          setFilter("open");
+          setQuery("");
           setOpen(id);
+          reload();
         }}
         links={wizard?.meetingId ? joinLinks[wizard.meetingId] || [] : []}
       />
