@@ -72,8 +72,22 @@ fn usd_to_yocto(usd: Decimal, usd_per_near: Decimal) -> u128 {
     near_to_yocto(usd / usd_per_near)
 }
 
+/// Exact amount, for what a move actually sends.
 fn fmt(y: u128) -> String {
     axom_core::near::yocto_to_near_string(y)
+}
+
+const MILLI_NEAR: u128 = YOCTO_PER_NEAR / 1000;
+
+/// A balance in a reason, rounded down to 0.001 NEAR.
+fn fmt_down(y: u128) -> String {
+    fmt(y / MILLI_NEAR * MILLI_NEAR)
+}
+
+/// A floor or target in a reason, rounded up to 0.001 NEAR, so a balance
+/// below it never reads as equal to it.
+fn fmt_up(y: u128) -> String {
+    fmt(y.div_ceil(MILLI_NEAR).saturating_mul(MILLI_NEAR))
 }
 
 /// Round down to 0.001 NEAR so moves are readable on an explorer.
@@ -129,7 +143,7 @@ pub fn plan(rules: &TreasuryRules, pos: &TreasuryPosition, ob: Obligations, pric
     let must_hold = floor.unwrap_or(floor_known);
     if pos.liquid_yocto < must_hold {
         if pos.supplied_yocto == 0 {
-            return mk(None, format!("liquid {} NEAR is below the {} NEAR floor and nothing is in Rhea: fund the treasury", fmt(pos.liquid_yocto), fmt(must_hold)), floor, target);
+            return mk(None, format!("liquid {} NEAR is below the {} NEAR floor and nothing is in Rhea: fund the treasury", fmt_down(pos.liquid_yocto), fmt_up(must_hold)), floor, target);
         }
         if !pos.can_withdraw {
             return mk(None, "below the liquidity floor, but Rhea has withdrawals paused for wNEAR".into(), floor, target);
@@ -138,7 +152,7 @@ pub fn plan(rules: &TreasuryRules, pos: &TreasuryPosition, ob: Obligations, pric
         let amount = want.min(pos.supplied_yocto);
         return mk(
             Some(Move::Withdraw { amount_yocto: amount }),
-            format!("liquid {} NEAR is below the {} NEAR payroll floor: withdrawing {} NEAR from Rhea", fmt(pos.liquid_yocto), fmt(must_hold), fmt(amount)),
+            format!("liquid {} NEAR is below the {} NEAR payroll floor: withdrawing {} NEAR from Rhea", fmt_down(pos.liquid_yocto), fmt_up(must_hold), fmt(amount)),
             floor,
             target,
         );
@@ -162,7 +176,7 @@ pub fn plan(rules: &TreasuryRules, pos: &TreasuryPosition, ob: Obligations, pric
     if amount < min_move {
         return mk(
             None,
-            format!("holding: {} NEAR liquid against a {} NEAR target; {} NEAR in Rhea", fmt(pos.liquid_yocto), fmt(target), fmt(pos.supplied_yocto)),
+            format!("holding: {} NEAR liquid against a {} NEAR target; {} NEAR in Rhea", fmt_down(pos.liquid_yocto), fmt_up(target), fmt_down(pos.supplied_yocto)),
             Some(must_hold),
             Some(target),
         );
@@ -180,7 +194,7 @@ pub fn plan(rules: &TreasuryRules, pos: &TreasuryPosition, ob: Obligations, pric
     }
     mk(
         Some(Move::Supply { amount_yocto: amount }),
-        format!("supplying {} NEAR to Rhea: liquid {} NEAR stays above the {} NEAR target (floor {} NEAR)", fmt(amount), fmt(pos.liquid_yocto - amount), fmt(target), fmt(must_hold)),
+        format!("supplying {} NEAR to Rhea: liquid {} NEAR stays above the {} NEAR target (floor {} NEAR)", fmt(amount), fmt_down(pos.liquid_yocto - amount), fmt_up(target), fmt_up(must_hold)),
         Some(must_hold),
         Some(target),
     )
@@ -307,5 +321,16 @@ mod tests {
         assert_eq!(plan(&rules(), &p, ob(0, dec!(0)), price(dec!(3))).action, None);
         // Tiny surpluses are not moved.
         assert_eq!(plan(&rules(), &pos(16 * N / 10, 0), ob(0, dec!(0)), price(dec!(3))).action, None, "0.3 NEAR surplus is under min_move");
+    }
+
+    #[test]
+    fn reasons_round_to_a_thousandth_without_hiding_a_shortfall() {
+        // 500 USD / 3.12 = 160.2564102… NEAR, + 1 NEAR minimum.
+        let p = plan(&rules(), &pos(199_818 * N / 100_000, 0), ob(0, dec!(500)), price(dec!(3.12)));
+        assert_eq!(p.reason, "liquid 1.998 NEAR is below the 161.257 NEAR floor and nothing is in Rhea: fund the treasury");
+        // A balance a hair under the floor still reads as below it.
+        let floor = p.floor_yocto.unwrap();
+        let p = plan(&rules(), &pos(floor - 1, 0), ob(0, dec!(500)), price(dec!(3.12)));
+        assert!(p.reason.starts_with("liquid 161.256 NEAR is below the 161.257 NEAR floor"), "{}", p.reason);
     }
 }
