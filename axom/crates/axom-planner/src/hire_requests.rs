@@ -40,8 +40,8 @@ pub fn request_hire_tool() -> Value {
             job on its jobs board (or Upwork, if that's what the company uses) after a policy check, shortlists \
             applicants, runs an AI interview, and sends an owner-approved contract, with no further approval needed; \
             the owner is told when the contract goes out. You don't post, choose, or pay anyone yourself. Use it when \
-            your task is to hire someone, or when the work needs a person no one at the company covers. One request \
-            per task.",
+            your task is to hire someone, when the task asks for a person (not AI) to do the work, or when the work \
+            needs a person no one at the company covers. One request per task.",
         "input_schema": {
             "type": "object",
             "properties": {
