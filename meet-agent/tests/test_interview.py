@@ -724,6 +724,9 @@ END_REQUESTS = [
     "That's it, I want to end the interview.", "I designed a fintech logo. I want to end the interview.", "I want to end my interview.",
     "I'd rather not continue.", "I would rather stop here.",
     "I'm going to end the interview here.", "We should end the interview.", "Okay, bye.", "I would like to end this.",
+    # Asking the interviewer to do it (missed in a real call: "I want you to end this interview.").
+    "I want you to end this interview.", "I want you to end the interview.", "I need you to end the interview now.",
+    "I would like you to end the interview.", "I'd like you to stop the interview.", "I want you to end it.",
 ]
 ANSWERS_ABOUT_ENDING = [
     "When I spoke with the team I make sure to end the interview quickly.",
@@ -744,6 +747,8 @@ ANSWERS_ABOUT_ENDING = [
     "I can't continue a project without a clear brief.",
     "That's all I have to add.",
     "Yes, let's go.",
+    "I want you to know I always end the meeting on time.",
+    "My manager wanted me to end the call early.",
 ]
 
 
@@ -821,19 +826,20 @@ def test_asking_for_the_question_again_is_never_an_answer():
 
 
 def test_silence_gets_the_question_again_twice_then_the_interviewer_waits():
-    from axom_meet.interview import CONSENT_ASK, MAX_NUDGES, MISSED, NOT_HEARD
+    from axom_meet.interview import CONSENT_ASK, MAX_NUDGES, MISSED, NOT_HEARD, QUESTION_AGAIN, TAKE_YOUR_TIME
 
     iv = Interview(job())
     assert iv.nudge().say is None, "nothing before the interview starts"
     iv.start()
-    r = iv.nudge()
-    assert (r.lead, r.say) == (NOT_HEARD, CONSENT_ASK)
+    r = iv.nudge("on")
+    assert (r.lead, r.say) == (NOT_HEARD, CONSENT_ASK), "never heard at all: the sound may not be arriving"
     iv.hear("Yes, I consent.")
-    said = [iv.nudge() for _ in range(MAX_NUDGES + 1)]
-    assert [r.say for r in said] == [job().questions[0]] * MAX_NUDGES + [None]
+    said = [iv.nudge("on") for _ in range(MAX_NUDGES + 1)]
+    # Heard before, with a working microphone: thinking. Time first, then the question again.
+    assert [(r.lead, r.say) for r in said] == [(None, TAKE_YOUR_TIME), (QUESTION_AGAIN, job().questions[0]), (None, None)]
     assert iv._q == 0, "the question is not skipped"
     iv.hear("I designed a fintech logo.")
-    assert iv.nudge().say == job().questions[1], "a heard answer starts the count again"
+    assert iv.nudge().say == TAKE_YOUR_TIME, "a heard answer starts the count again"
     assert iv.missed().say == MISSED
     iv.hear("I iterate quickly.")
     assert iv.nudge().say is None and iv.missed().say is None, "nothing after the goodbye"
@@ -897,7 +903,7 @@ def test_the_goodbye_is_not_thanked_first_and_a_request_is_not_joined_to_the_las
 def test_silence_and_speech_without_words_are_answered(monkeypatch):
     import asyncio
 
-    from axom_meet.interview import CONSENT_ASK, MISSED, NOT_HEARD
+    from axom_meet.interview import CONSENT_ASK, MISSED, NOT_HEARD, TAKE_YOUR_TIME
 
     call = _Call(monkeypatch)
     q1, _ = call.iv.job.questions
@@ -909,7 +915,7 @@ def test_silence_and_speech_without_words_are_answered(monkeypatch):
     asyncio.run(call.probe.no_words(2.0))
     assert call.session.said[-1] == MISSED
     asyncio.run(call.probe.silent())
-    assert call.session.said[-2:] == [NOT_HEARD, q1]
+    assert call.session.said[-1] == TAKE_YOUR_TIME, "heard before: thinking, not a microphone problem"
 
 
 def test_the_steady_voice_hook_is_still_in_the_library():
@@ -936,3 +942,199 @@ def test_the_steady_voice_hook_is_still_in_the_library():
         assert [await q.recv(), await q.recv(), q.recv_nowait()] == ["a", "b", "c"] and q.empty()
 
     asyncio.run(main())
+
+
+# The follow-up model once spoke its reasoning aloud, in a real call: this
+# whole line was said to the candidate (it passed the old check: under 300
+# characters, ending in "?").
+LEAKED_FOLLOW_UP = (
+    "The candidate's answer didn't address the question; it only asked me to answer for them. Based on that, "
+    "the one follow-up I'd ask is: Could you walk me through, step by step, how you back up customer data "
+    "before opening a laptop and how you prevent static or component damage while you work?"
+)
+
+
+def test_follow_ups_that_talk_about_the_candidate_are_never_said():
+    q1, q2 = job().questions
+    leaked = [
+        LEAKED_FOLLOW_UP,
+        "Follow-up: which tools did you use for the vector work?",
+        "I'd ask: which tools did you use for the vector work?",
+        "Based on that, which tools did the candidate use?",
+        "The answer didn't address the question. Which tools did you use?",
+        "My follow-up question would be: which tools did you use?",
+        # A second real one: the candidate had said only "Hold on. It".
+        'The candidate\'s answer is just "Hold on. It" and seems cut off. A short follow-up asking them to finish is appropriate. '
+        "Could you finish describing that repair? What was the fault you first suspected, and what was the actual cause once you dug in?",
+    ]
+    for written in leaked:
+        assert guards.safe_follow_up(written) is None, written
+        iv, said, _ = run(["Yes", "I designed a logo."], llm=FakeLLM(follow_up=written))
+        assert said[-1] == q2, written
+        assert all("candidate" not in line for line in said), written
+    for fine in [
+        "Which tools did you use for the vector work?",
+        "How did you decide which tool to use and why?",
+        "One thing I'm curious about: how did the client react to the first draft?",
+        "What would you do differently if you made it again?",
+    ]:
+        assert guards.safe_follow_up(fine) == fine, fine
+
+
+def test_a_follow_up_asks_one_short_thing():
+    for written in [
+        "Could you walk me through, step by step, how you back up customer data before opening a laptop and how you prevent static or component damage while you work?",
+        "What did you use? Why that one?",
+        "Which " + "very " * 40 + "specific tools did you use?",
+    ]:
+        assert guards.safe_follow_up(written) is None, written
+
+
+def test_the_follow_up_model_is_told_to_speak_to_the_candidate():
+    class Recorder(FakeLLM):
+        def complete(self, system, prompt):
+            self.system = system
+            return super().complete(system, prompt)
+
+    llm = Recorder(follow_up="Which tools did you use?")
+    run(["Yes", "I designed a logo."], llm=llm)
+    assert "you" in llm.system and "one thing" in llm.system.lower() and "never describe" in llm.system.lower()
+
+
+NON_ANSWERS = {
+    "for_me": ["Can you answer it for me?", "You answer it.", "Just answer that for me, please.", "What would you say?", "What's the right answer?", "Could you give me an example answer?", "Um, you tell me."],
+    "none": ["I don't know.", "I have no idea.", "Honestly, I don't know, sorry.", "Can we skip this one?", "Next question, please.", "Pass.", "I'm not sure.", "I can't answer that."],
+}
+
+
+def test_a_non_answer_gets_the_question_once_more_then_moves_on():
+    from axom_meet.interview import ANSWER_YOURSELF, MOVE_ON, NO_ANSWER
+
+    q1, q2 = job().questions
+    for kind, lines in NON_ANSWERS.items():
+        lead = ANSWER_YOURSELF if kind == "for_me" else NO_ANSWER
+        for line in lines:
+            assert guards.non_answer(line) == kind, line
+            llm = FakeLLM(follow_up="What was the hardest part?")
+            iv, said, _ = run(["Yes", line], llm=llm)
+            assert said[-1] == q1 and iv.transcript[-1].text == f"{lead} {q1}", line
+            assert llm.prompts == [] and not iv.will_think(line), "no follow-up is written for it"
+            # A real answer next still gets the question's follow-up.
+            assert iv.hear("I designed a fintech logo.").say == "What was the hardest part?", line
+            # A second non-answer in a row moves on instead of asking again.
+            iv, said, _ = run(["Yes", line, line], llm=llm)
+            assert said[-1] == q2 and iv.transcript[-1].text == f"{MOVE_ON} {q2}", line
+    # To a follow-up: asked once more, then on to the next planned question.
+    iv, said, _ = run(["Yes", "I designed a logo.", "I don't know.", "No idea."], llm=FakeLLM(follow_up="What was the hardest part?"))
+    assert said[-3:] == ["What was the hardest part?", "What was the hardest part?", q2]
+    # After the last question, moving on is the closing.
+    iv, said, _ = run(["Yes", "I designed a logo.", "Pass.", "Pass."], llm=FakeLLM())
+    assert said[-2] == q2
+    assert said[-1] == CLOSING and iv.state == "done"
+
+
+def test_answers_that_only_sound_like_non_answers_are_answers():
+    for answer in [
+        "I don't know the exact number, but we shipped forty logos that year.",
+        "I'd skip the gradients and keep it flat.",
+        "What would you say makes a good logo? For me it's simplicity.",
+        "Honestly I don't know if it worked, the client never replied.",
+        "I answer emails for clients every day.",
+        "I don't know, but I'd start by backing up their files.",
+        "Not sure it was the best choice, but the client loved it.",
+    ]:
+        assert guards.non_answer(answer) is None, answer
+
+
+def test_a_microphone_problem_is_named_and_a_working_one_is_never_blamed():
+    from axom_meet.interview import CONSENT_ASK, MIC_LINES, NOT_HEARD, TAKE_YOUR_TIME
+
+    for mic, line in MIC_LINES.items():
+        iv = Interview(job())
+        iv.start()
+        r = iv.nudge(mic)
+        assert (r.lead, r.say) == (line, CONSENT_ASK), mic
+        iv.hear("Yes, I consent.")
+        r = iv.nudge(mic)
+        assert (r.lead, r.say) == (line, job().questions[0]), "named even after they were heard"
+    for line in MIC_LINES.values():
+        assert "microphone" in line
+    assert "microphone is on" not in NOT_HEARD and "microphone" not in TAKE_YOUR_TIME
+
+
+def test_the_agent_reads_the_participants_microphone(monkeypatch):
+    import asyncio
+    import types
+
+    from livekit import rtc
+
+    from axom_meet import agent as A
+    from axom_meet.interview import MIC_LINES
+
+    mic = lambda muted=False: types.SimpleNamespace(source=rtc.TrackSource.SOURCE_MICROPHONE, muted=muted)
+    cam = types.SimpleNamespace(source=rtc.TrackSource.SOURCE_CAMERA, muted=False)
+    person = lambda *pubs: types.SimpleNamespace(track_publications={str(i): p for i, p in enumerate(pubs)})
+    assert A.mic_state(None) is None
+    assert A.mic_state(person(cam)) == "off"
+    assert A.mic_state(person(mic(muted=True), cam)) == "muted"
+    assert A.mic_state(person(mic())) == "on"
+    assert A.mic_state(person(mic()), silent=True) == "silent"
+
+    call = _Call(monkeypatch)
+    call.turn("Yes, I consent.")
+    call.session.room_io = types.SimpleNamespace(linked_participant=person(mic(muted=True)))
+    asyncio.run(call.probe.silent())
+    assert call.session.said[-2:] == [MIC_LINES["muted"], call.iv.job.questions[0]]
+    # The page said the microphone sends no sound; hearing them clears it.
+    call.session.room_io.linked_participant = person(mic())
+    call.probe.mic_silent = True
+    assert call.probe.mic() == "silent"
+    call.probe.user_speaking(True)
+    assert call.probe.mic() == "on"
+
+
+def test_asking_for_a_moment_waits_for_the_answer():
+    from axom_meet.interview import TAKE_A_MOMENT
+
+    q1, q2 = job().questions
+    for line in ["Hold on. It", "Hold on.", "Let me think about that.", "Give me a second, please.", "Um, one moment.", "Wait, the"]:
+        assert guards.asks_for_time(line), line
+        llm = FakeLLM(follow_up="What was the hardest part?")
+        iv, said, _ = run(["Yes", line], llm=llm)
+        assert said[-1] == TAKE_A_MOMENT and llm.prompts == [] and not iv.will_think(line), line
+        # Asking again says nothing more; the answer that follows is heard with it, as one.
+        assert iv.hear("Hang on.").say is None
+        assert iv.hear("It was a bad capacitor on the board.").say == "What was the hardest part?"
+        assert f"{line} Hang on. It was a bad capacitor on the board." in llm.prompts[-1], line
+    for answer in ["Wait, I think it was the battery.", "Hold on to the client's files first, then open the case.", "I let them think it over."]:
+        assert not guards.asks_for_time(answer), answer
+
+
+def test_only_leave_ends_the_call_and_a_reload_is_waited_out():
+    import types
+
+    from livekit import rtc
+
+    from axom_meet import agent as A
+
+    gone = lambda reason, who="cand@example.com": types.SimpleNamespace(identity=who, disconnect_reason=reason)
+    # A reload, a closed tab and a lost connection all look like this to the server.
+    assert not A.left_on_purpose(gone(rtc.DisconnectReason.CLIENT_INITIATED), set())
+    assert not A.left_on_purpose(gone(rtc.DisconnectReason.SIGNAL_CLOSE), set())
+    # The Leave button says so first; a closed room or a removed person is final.
+    assert A.left_on_purpose(gone(rtc.DisconnectReason.CLIENT_INITIATED), {"cand@example.com"})
+    assert not A.left_on_purpose(gone(rtc.DisconnectReason.CLIENT_INITIATED, "other@example.com"), {"cand@example.com"})
+    assert A.left_on_purpose(gone(rtc.DisconnectReason.ROOM_DELETED), set())
+    assert A.left_on_purpose(gone(rtc.DisconnectReason.USER_REJECTED), set())
+
+
+def test_no_silence_prompt_to_an_empty_room(monkeypatch):
+    import asyncio
+    import types
+
+    call = _Call(monkeypatch)
+    call.turn("Yes, I consent.")
+    said = len(call.session.said)
+    call.session.room_io = types.SimpleNamespace(linked_participant=None)
+    asyncio.run(call.probe.silent())
+    assert len(call.session.said) == said, "nobody is there to hear it; the prompts are kept for when they are back"

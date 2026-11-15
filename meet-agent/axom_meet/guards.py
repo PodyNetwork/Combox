@@ -87,7 +87,9 @@ _ADV = r"(?:(?:really|just|actually|now|kind\s+of|kinda|also|still)\s+)*"
 _WISH = (
     rf"(?:(?:i|we)\s+{_ADV}(?:(?:want|wish|need|have|have\s+got|got|would\s+like|would\s+love|would\s+prefer|am\s+going|are\s+going)\s+to"
     r"|wanna|gotta|gonna|must|should|would\s+rather|think\s+(?:we|i)\s+should|guess\s+(?:we|i)\s+should)"
-    r"|(?:i|we)'d\s+(?:like\s+to|love\s+to|prefer\s+to|rather)|(?:i'm|we're)\s+(?:going\s+to|gonna))"
+    r"|(?:i|we)'d\s+(?:like\s+to|love\s+to|prefer\s+to|rather)|(?:i'm|we're)\s+(?:going\s+to|gonna)"
+    # Asking the interviewer to do it: "I want you to end this interview".
+    rf"|(?:i|we)\s+{_ADV}(?:want|need|would\s+like|would\s+love)\s+you\s+to(?:\s+please)?|(?:i|we)'d\s+(?:like|love)\s+you\s+to(?:\s+please)?)"
 )
 _ASK = (
     r"(?:(?:can|could|may|shall|should|would)\s+(?:we|i|you)|(?:is\s+it|would\s+it\s+be)\s+(?:ok(?:ay)?|alright|fine|possible)\s+(?:if\s+(?:we|i)|to)"
@@ -249,6 +251,87 @@ def repeat_request(text: str) -> str | None:
     return "repeat" if "repeat" in kinds else "check"
 
 
+# The participant gives no answer: they ask the interviewer to answer for
+# them ("for_me"), or say they don't know or want to skip ("none"). Only a
+# turn that says nothing else counts; "I don't know, but I'd start with
+# backups" is an answer.
+_IT_FOR_ME = r"(?:it|that|this|the\s+question|this\s+one|that\s+one)"
+_FOR_ME = re.compile(
+    rf"^\W*{_SOFT}(?:"
+    rf"(?:can|could|would|will)\s+you\s+(?:(?:please|just|kindly)\s+)*answer(?:\s+{_IT_FOR_ME})?(?:\s+for\s+me)?"
+    rf"|(?:you|just)\s+answer(?:\s+{_IT_FOR_ME})?(?:\s+for\s+me)?"
+    rf"|answer(?:\s+{_IT_FOR_ME})?\s+for\s+me"
+    r"|(?:can|could|would)\s+you\s+(?:(?:please|just)\s+)*(?:give|tell)\s+me\s+(?:the|an?|your|a\s+sample|an\s+example|a\s+good)\s+answer"
+    r"|(?:just\s+)?(?:give|tell)\s+me\s+(?:the|an?|your)\s+answer"
+    rf"|what(?:'s|\s+is|\s+would\s+be)\s+(?:the|a\s+good|the\s+right|the\s+correct|your)\s+answer(?:\s+to\s+{_IT_FOR_ME})?"
+    rf"|what\s+would\s+you\s+(?:say|do|answer)|how\s+would\s+you\s+answer\s+{_IT_FOR_ME}"
+    r"|you\s+tell\s+me|what\s+(?:should|do)\s+i\s+say|what\s+do\s+you\s+want\s+me\s+to\s+say|tell\s+me\s+what\s+to\s+say"
+    r")(?:\s+please)?\W*$",
+    re.IGNORECASE,
+)
+_NO_ANSWER = re.compile(
+    rf"^\W*{_SOFT}(?:"
+    r"i\s+(?:really\s+|honestly\s+|just\s+)?(?:don't|do\s+not|dont)\s+(?:really\s+)?know(?:\s+(?:that|this|the\s+answer|how\s+to\s+answer\s+(?:that|this)))?"
+    r"|i\s+(?:have\s+)?(?:no|not\s+a(?:ny)?)\s+(?:idea|clue)|no\s+idea|no\s+clue|not\s+a\s+clue"
+    r"|(?:i'm|i\s+am)\s+not\s+(?:really\s+)?sure|not\s+sure"
+    r"|i\s+(?:can't|cannot|can\s+not)\s+answer\s+(?:that|this|it)|i\s+(?:don't|do\s+not)\s+have\s+an\s+answer(?:\s+(?:to|for)\s+(?:that|this))?"
+    rf"|(?:can|could|may)\s+(?:we|i)\s+(?:please\s+)?(?:skip|pass(?:\s+on)?)(?:\s+{_IT_FOR_ME})?"
+    rf"|(?:let's|lets)\s+skip(?:\s+{_IT_FOR_ME})?|(?:i'll|i\s+will)\s+(?:skip|pass)(?:\s+(?:on\s+)?{_IT_FOR_ME})?"
+    rf"|(?:skip|pass)(?:\s+{_IT_FOR_ME})?|next\s+question|(?:can|could)\s+we\s+(?:please\s+)?move\s+on|(?:let's|lets)\s+move\s+on|move\s+on"
+    r")(?:\s+please)?\W*$",
+    re.IGNORECASE,
+)
+_CLAUSES = re.compile(r"(?<=[.?!…,;])\s+")
+
+
+def non_answer(text: str) -> str | None:
+    """"for_me" if the turn only asks the interviewer to answer for them,
+    "none" if it only says they don't know or want to skip, else None."""
+    t = " ".join(text.translate(_APOSTROPHES).split())
+    kinds = set()
+    for clause in _CLAUSES.split(t):
+        if not clause.strip() or _ONLY_SOFT.match(clause + " "):
+            continue
+        if _FOR_ME.match(clause):
+            kinds.add("for_me")
+        elif _NO_ANSWER.match(clause):
+            kinds.add("none")
+        else:
+            return None
+    if not kinds:
+        return None
+    return "for_me" if "for_me" in kinds else "none"
+
+
+# The participant asks for a moment ("hold on", "let me think"), maybe with
+# the first word or two of their answer after it, cut off ("Hold on. It"):
+# they have not answered yet.
+_HOLD = re.compile(
+    rf"^\W*{_SOFT}(?:hold\s+on|hang\s+on|wait|(?:just\s+)?(?:a|one)\s+(?:sec(?:ond)?|moment|minute)"
+    r"|give\s+me\s+(?:a|one)\s+(?:sec(?:ond)?|moment|minute)|i\s+need\s+(?:a|one)\s+(?:sec(?:ond)?|moment|minute)"
+    r"|let\s+me\s+(?:think|see)(?:\s+about\s+(?:that|it))?|bear\s+with\s+me)"
+    r"(?:\s+(?:a\s+(?:sec(?:ond)?|moment|minute)|please))*\W*$",
+    re.IGNORECASE,
+)
+
+
+def asks_for_time(text: str) -> bool:
+    """True if the turn only asks for a moment, or asks for one and then
+    breaks off within a few words."""
+    clauses = [c for c in _CLAUSES.split(" ".join(text.translate(_APOSTROPHES).split())) if c.strip()]
+    held = False
+    for i, clause in enumerate(clauses):
+        if _ONLY_SOFT.match(clause + " "):
+            continue
+        if _HOLD.match(clause):
+            held = True
+            continue
+        if held and i == len(clauses) - 1 and len(clause.split()) <= 3 and not re.search(r"[.?!…]\W*$", clause):
+            continue
+        return False
+    return held
+
+
 def mentions_pay_or_terms(text: str) -> bool:
     return bool(_PAY_TERMS.search(text))
 
@@ -257,17 +340,43 @@ def is_commitment(text: str) -> bool:
     return bool(_COMMITMENT.search(text))
 
 
-def safe_follow_up(text: str | None) -> str | None:
-    """Accept a generated follow-up only if it is a single short question that
-    commits to nothing and does not touch pay or terms."""
+# A model's notes about the interview rather than a line for the candidate:
+# it once said aloud "The candidate's answer didn't address the question...
+# Based on that, the one follow-up I'd ask is: ...".
+_ABOUT_THE_INTERVIEW = re.compile(
+    r"\b(?:the|this|that)\s+candidate\b|\bcandidate's\b|\bfollow[- ]?up\b|\bi'?d\s+ask\b|\bi\s+would\s+ask\b"
+    r"|\bbased\s+on\s+(?:that|this|the|their|your)\b|\b(?:the|their|your)\s+answer\s+(?:didn't|did\s+not|doesn't|does\s+not|was|is)\b"
+    r"|\bmy\s+(?:question|follow)|\bhere's\s+(?:a|my|the|one)\b",
+    re.IGNORECASE,
+)
+# Two questions joined into one ("how you back up the data and how you
+# prevent damage"); "...and why?" on its own is one.
+_TWO_QUESTIONS = re.compile(
+    r"\band\s+(?:how|what|which|when|where|why|who)\s+(?:you|did|do|does|would|will|was|were|is|are|could|can|should|have|has)\b",
+    re.IGNORECASE,
+)
+
+
+def _safe_line(text: str | None, max_chars: int, max_questions: int) -> str | None:
+    """A generated line the interviewer may say to the candidate: a question,
+    no longer than `max_chars`, that commits to nothing, does not touch pay
+    or terms, and speaks to the candidate rather than about them."""
     if not text:
         return None
     t = " ".join(text.split())
-    if len(t) > 300 or not t.endswith("?") or t.count("?") > 2:
+    if len(t) > max_chars or not t.endswith("?") or t.count("?") > max_questions:
         return None
-    if is_commitment(t) or mentions_pay_or_terms(t):
+    if is_commitment(t) or mentions_pay_or_terms(t) or _ABOUT_THE_INTERVIEW.search(t.translate(_APOSTROPHES)):
         return None
     return t
+
+
+def safe_follow_up(text: str | None) -> str | None:
+    """Accept a generated follow-up only if it is one short question about one
+    thing (see `_safe_line`); anything else is dropped and the interview
+    moves on to its next question."""
+    t = _safe_line(text, 200, 1)
+    return None if t is None or _TWO_QUESTIONS.search(t) else t
 
 
 # Topics an interview question may never touch (protected characteristics).
@@ -288,7 +397,7 @@ def safe_question(text: str | None) -> str | None:
     """Accept a generated interview question only if it is one short,
     job-related question: no pay or terms, no commitments, and nothing about
     protected characteristics."""
-    q = safe_follow_up(text)
+    q = _safe_line(text, 300, 2)
     if q is None or mentions_protected(q) or len(q) < 12:
         return None
     return q

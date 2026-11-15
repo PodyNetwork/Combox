@@ -92,7 +92,12 @@ impl LiveKit {
 impl MeetingRooms for LiveKit {
     async fn create_room(&self, auth: &Authorized, name: &str) -> ToolResult<RoomInfo> {
         self.http.check(auth)?;
-        self.twirp("RoomService", "CreateRoom", None, json!({ "name": name, "empty_timeout": 600, "max_participants": 10 }), json!({ "name": name })).await?;
+        // `departure_timeout`: the room outlives the last person to leave by
+        // 150 s (LiveKit's default is 20 s, and the AI agent alone does not
+        // keep it open), so the interviewer can wait out a reload or a
+        // dropped connection (the meeting agent's EMPTY_ROOM_GRACE_SECS, 120 s).
+        let room = json!({ "name": name, "empty_timeout": 600, "departure_timeout": 150, "max_participants": 10 });
+        self.twirp("RoomService", "CreateRoom", None, room, json!({ "name": name })).await?;
         Ok(RoomInfo { room: name.into(), url: self.ws_url.clone() })
     }
 

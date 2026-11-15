@@ -9,10 +9,11 @@
 // as the interviewer waits, with a notice saying so. The interview itself is
 // voice only: someone who missed a line asks the interviewer to repeat it.
 import { useEffect, useRef, useState } from "react";
-import { LiveKitRoom, RoomAudioRenderer, StartAudio, VideoTrack, isTrackReference, useIsSpeaking, useParticipants, useRoomContext, useTrackToggle, useTracks, useTranscriptions } from "@livekit/components-react";
+import { createPortal } from "react-dom";
+import { LiveKitRoom, RoomAudioRenderer, StartAudio, VideoTrack, isTrackReference, useIsMuted, useIsSpeaking, useParticipants, useRoomContext, useTrackToggle, useTracks, useTranscriptions } from "@livekit/components-react";
 import { AudioPresets, ConnectionQuality, DefaultReconnectPolicy, DisconnectReason, MediaDeviceFailure, ParticipantKind, Room as LkRoom, RoomEvent, Track, VideoPresets } from "livekit-client";
-import { Clock, Cpu, Record } from "iconsax-react";
-import { CaptionBand, ControlBar, Wave, initials } from "./Captions.jsx";
+import { Clock, Cpu, MicrophoneSlash1, Record } from "iconsax-react";
+import { Alerts, CaptionBand, ControlBar, Wave, initials } from "./Captions.jsx";
 import { Orb, Wordmark } from "./ui.jsx";
 
 const AGENT_RESEND_MS = 35000;
@@ -42,7 +43,19 @@ const ROOM_OPTIONS = {
     degradationPreference: "maintain-framerate",
   },
 };
+// The interviewer is told on this data topic when the microphone sends
+// complete silence (a dead or blocked device), so it names the problem
+// instead of asking the person to "check the microphone" (agent MIC_TOPIC).
+const MIC_TOPIC = "axom.mic";
+// Sent when the person presses Leave (agent LEAVE_TOPIC).
+const LEAVE_TOPIC = "axom.leave";
+const SILENT_MIC = "We're not getting any sound from your microphone. Check that it's connected and selected in your device's sound settings, then turn it off and on below.";
 const BLOCKED = "Your camera or microphone is blocked. Allow access in your browser's site settings, then turn it back on below. You can still hear the interviewer.";
+
+// Set when the person presses Leave. A page that unloads (a reload, a closed
+// tab) also disconnects "on purpose" to LiveKit, and must not be taken for
+// leaving: a reload comes straight back in.
+let leaving = false;
 
 // Warm up the connection to the room server while the person is in the lobby.
 let prepared = null;
@@ -81,15 +94,12 @@ export default function Room({ join, video, audio, tracks, onLeft, onEnded, onFa
         <Wordmark />
         <strong>{join.title}</strong>
         <span className="live"><Record size={14} variant="Bold" color="currentColor" /> LIVE</span>
-        <RoomTimer minutes={join.duration_minutes || 10} />
+        <RoomTimer minutes={join.duration_minutes || 10} endsAt={join.expires_at} />
         <span className="ai-note"><Cpu size={15} variant="Bulk" color="currentColor" /> AI interviewer present · asks consent before recording</span>
+        {/* The issues button (`Alerts`), rendered here from inside the call;
+            the slot keeps its size so the bar never shifts. */}
+        <span className="alerts-slot" id="room-alerts" />
       </header>
-      {deviceIssue && (
-        <p className="device-issue" role="alert">
-          {deviceIssue}
-          <button onClick={() => setDeviceIssue(null)} aria-label="Dismiss">✕</button>
-        </p>
-      )}
       <div className="room-stage">
         <LiveKitRoom
           room={room}
@@ -98,7 +108,7 @@ export default function Room({ join, video, audio, tracks, onLeft, onEnded, onFa
           connect
           onConnected={publish}
           onDisconnected={(reason) => {
-            if (reason === DisconnectReason.CLIENT_INITIATED) return onLeft();
+            if (reason === DisconnectReason.CLIENT_INITIATED) return leaving ? onLeft() : undefined;
             if (!connected.current) return onFailed("The interview room didn't answer. It may not have started yet, or your network is blocking it.");
             if (reason === DisconnectReason.DUPLICATE_IDENTITY) return onFailed("You joined this interview from another tab or device, so this one was disconnected.");
             if (reason === DisconnectReason.ROOM_DELETED) return onEnded();
@@ -113,7 +123,7 @@ export default function Room({ join, video, audio, tracks, onLeft, onEnded, onFa
           }}
           onMediaDeviceFailure={() => setDeviceIssue(BLOCKED)}
         >
-          <LiveRoom onDeviceIssue={setDeviceIssue} onNoAgent={onNoAgent} />
+          <LiveRoom deviceIssue={deviceIssue} onDeviceIssue={setDeviceIssue} onNoAgent={onNoAgent} />
         </LiveKitRoom>
       </div>
     </div>
@@ -122,14 +132,21 @@ export default function Room({ join, video, audio, tracks, onLeft, onEnded, onFa
 
 // Time left in the interview. The interviewer ends it at the limit; this
 // counts down from when the candidate entered the room.
-function RoomTimer({ minutes }) {
-  const [start] = useState(() => Date.now());
-  const [now, setNow] = useState(start);
+// Counts down to `endsAt` (the join link's end: the interview's time limit
+// from the first join), so a reload or a rejoin shows the time really left
+// rather than starting over; never more than the limit from entering.
+function RoomTimer({ minutes, endsAt }) {
+  const [end] = useState(() => {
+    const limit = Date.now() + minutes * 60000;
+    const t = Date.parse(endsAt);
+    return Number.isFinite(t) ? Math.min(t, limit) : limit;
+  });
+  const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(t);
   }, []);
-  const left = Math.max(0, minutes * 60 - Math.floor((now - start) / 1000));
+  const left = Math.max(0, Math.ceil((end - now) / 1000));
   const mm = String(Math.floor(left / 60)).padStart(2, "0");
   const ss = String(left % 60).padStart(2, "0");
   return (
@@ -139,7 +156,7 @@ function RoomTimer({ minutes }) {
   );
 }
 
-function LiveRoom({ onDeviceIssue, onNoAgent }) {
+function LiveRoom({ deviceIssue, onDeviceIssue, onNoAgent }) {
   const tracks = useTracks([{ source: Track.Source.Camera, withPlaceholder: true }], { onlySubscribed: false });
   const participants = useParticipants();
   const transcriptions = useTranscriptions();
@@ -179,6 +196,30 @@ function LiveRoom({ onDeviceIssue, onNoAgent }) {
   // Until the interviewer has said something, show what it is doing, so a
   // quiet first few seconds don't look like a broken call.
   const agent = participants.find(isAgent);
+  // LiveKit checks the microphone once it starts: complete silence means a
+  // dead or blocked device. Show it and tell the interviewer (again if it
+  // joins later); being heard clears it.
+  const [micSilent, setMicSilent] = useState(false);
+  const localSpeaking = useIsSpeaking(room.localParticipant);
+  useEffect(() => {
+    const onSilent = () => setMicSilent(true);
+    room.on(RoomEvent.LocalAudioSilenceDetected, onSilent);
+    return () => room.off(RoomEvent.LocalAudioSilenceDetected, onSilent);
+  }, [room]);
+  useEffect(() => {
+    if (localSpeaking) setMicSilent(false);
+  }, [localSpeaking]);
+  useEffect(() => {
+    if (!micSilent || !agent) return;
+    room.localParticipant.publishData(new TextEncoder().encode("silent"), { reliable: true, topic: MIC_TOPIC }).catch(() => {});
+  }, [micSilent, agent, room]);
+  // Problems the person may need to fix, behind one caution button (a
+  // muted microphone is not one: the button and their tile show it).
+  const issues = [
+    deviceIssue && { id: "device", text: deviceIssue, dismiss: () => onDeviceIssue(null) },
+    micSilent && { id: "mic", text: SILENT_MIC },
+    weak && !reconnecting && { id: "weak", text: "Your connection is weak. If you miss something, ask the interviewer to repeat it." },
+  ].filter(Boolean);
   const [slow, setSlow] = useState(false);
   useEffect(() => {
     if (agent) return setSlow(false);
@@ -221,14 +262,11 @@ function LiveRoom({ onDeviceIssue, onNoAgent }) {
     <div className="stage">
       <div className="stage-top" aria-live="polite">
         {status && <p className="ai-status"><span className="ai-status-dot" />{status}</p>}
-        {reconnecting ? (
-          <p className="ai-status net-status"><span className="ai-status-dot" />Reconnecting. Stay on this page: the interviewer is waiting for you.</p>
-        ) : (
-          weak && <p className="ai-status net-status">Your connection is weak. If you miss something, ask the interviewer to repeat it.</p>
-        )}
+        {reconnecting && <p className="ai-status net-status"><span className="ai-status-dot" />Reconnecting. Stay on this page: the interviewer is waiting for you.</p>}
         {/* Shown only when the browser blocked sound until a click. */}
         <StartAudio label="Tap to hear the interviewer" className="start-audio" />
       </div>
+      <AlertsInBar issues={issues} />
       <div className="stage-grid">
         {tracks.map((t) => (
           <Tile key={`${t.participant.identity}-${t.source}`} trackRef={t} />
@@ -242,9 +280,20 @@ function LiveRoom({ onDeviceIssue, onNoAgent }) {
         onMic={() => mic.toggle().catch(deviceError("microphone"))}
         onCam={() => cam.toggle().catch(deviceError("camera"))}
         onCc={() => setCc(!cc)}
-        onLeave={() => {
+        onLeave={async () => {
           // Leaving ends the interview for good, so ask first.
-          if (window.confirm("Leave and end the interview? You won't be able to rejoin.")) room.disconnect();
+          if (!window.confirm("Leave and end the interview? You won't be able to rejoin.")) return;
+          leaving = true;
+          // Tell the interviewer it is on purpose: any other disconnect (a
+          // reload, a lost connection) is waited out. A moment for it to go
+          // out; if it is lost, the interviewer ends the call after its wait.
+          try {
+            await room.localParticipant.publishData(new TextEncoder().encode("leave"), { reliable: true, topic: LEAVE_TOPIC });
+            await new Promise((r) => setTimeout(r, 300));
+          } catch {
+            // Disconnect anyway.
+          }
+          room.disconnect();
         }}
       />
       <RoomAudioRenderer />
@@ -252,9 +301,17 @@ function LiveRoom({ onDeviceIssue, onNoAgent }) {
   );
 }
 
+// The issues button lives in the top bar, outside the LiveKit room's tree.
+function AlertsInBar({ issues }) {
+  const [slot, setSlot] = useState(null);
+  useEffect(() => setSlot(document.getElementById("room-alerts")), []);
+  return slot ? createPortal(<Alerts issues={issues} />, slot) : null;
+}
+
 function Tile({ trackRef }) {
   const p = trackRef.participant;
   const speaking = useIsSpeaking(p);
+  const micOff = useIsMuted({ participant: p, source: Track.Source.Microphone });
   const ai = isAgent(p);
   const name = nameOf(p);
   const video = isTrackReference(trackRef) && trackRef.publication && !trackRef.publication.isMuted;
@@ -270,7 +327,13 @@ function Tile({ trackRef }) {
       <span className="who">
         {ai && <Cpu size={15} variant="Bulk" color="var(--violet)" />}
         {name}
-        <Wave on={speaking} />
+        {!ai && micOff ? (
+          <span className="mic-off" role="img" aria-label="Microphone off" title="Microphone off">
+            <MicrophoneSlash1 size={15} variant="Bold" color="currentColor" />
+          </span>
+        ) : (
+          <Wave on={speaking} />
+        )}
       </span>
     </div>
   );

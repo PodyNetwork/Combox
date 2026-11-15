@@ -63,7 +63,7 @@ from livekit.plugins import silero
 
 from . import guards
 from .callback import fetch_keys, post_event
-from .interview import CLOSING, CONFIRM_END, CONSENT_ASK, CONTINUE, DECLINED, ENDED, REASK, REPEAT, STILL_HERE, Checkpoint, Interview, Job, Reply, plan_questions
+from .interview import ANSWER_YOURSELF, CLOSING, CONFIRM_END, CONSENT_ASK, CONTINUE, DECLINED, ENDED, MIC_LINES, MOVE_ON, NO_ANSWER, NOT_HEARD, QUESTION_AGAIN, REASK, REPEAT, STILL_HERE, TAKE_A_MOMENT, TAKE_YOUR_TIME, Checkpoint, Interview, Job, Reply, plan_questions
 from .playback import presynthesize, ready_audio, replay, use_steady_voice
 from .turns import MAX_WAIT_SECS, TURN_HANDLING, AnswerEndDetector
 from .voice import build_stt, build_tts, tts_provider
@@ -94,25 +94,45 @@ LOAD_THRESHOLD = 0.9
 IDLE_PROCESSES = int(os.environ.get("AXOM_MEET_IDLE_PROCESSES", "1"))
 # Attempts to report an event to Combox before giving up.
 CALLBACK_ATTEMPTS = 3
-# Leaving on purpose (the Leave button, or the room being deleted), as
-# opposed to a dropped connection.
-LEFT_ON_PURPOSE = {rtc.DisconnectReason.CLIENT_INITIATED, rtc.DisconnectReason.ROOM_DELETED, rtc.DisconnectReason.USER_REJECTED}
+# The Leave button sends this on a data topic before disconnecting. Only
+# that, or the room being closed, ends the interview when the last person
+# goes: a reload, a closed tab or a lost connection all disconnect the same
+# way to the server ("client initiated"), and a reload comes straight back.
+LEAVE_TOPIC = "axom.leave"
+GONE_FOR_GOOD = {rtc.DisconnectReason.ROOM_DELETED, rtc.DisconnectReason.USER_REJECTED}
+
+
+def left_on_purpose(p, leavers: set[str]) -> bool:
+    """The participant who just disconnected pressed Leave (or was removed,
+    or the room closed); otherwise they may come back (`EMPTY_ROOM_GRACE_SECS`)."""
+    return p.identity in leavers or p.disconnect_reason in GONE_FOR_GOOD
 # Someone who starts talking again this soon after their answer was handed
 # over, before they have heard the reply to it in full, had not finished it
 # (`Interviewer._carried_on`): nobody answers a question they haven't heard.
 RESUME_WINDOW_SECS = 3.0
 # Sound shorter than this (a cough, a click) is not someone carrying on.
 MIN_RESUME_SECS = 0.3
-# Silence after a question before the interviewer says it has heard nothing
-# and asks again (twice at most, `interview.MAX_NUDGES`): the participant
-# may be muted, or their sound may not be arriving.
-SILENCE_NUDGE_SECS = 25.0
+# Silence after the interviewer speaks before it says something (twice at
+# most, `interview.MAX_NUDGES`; what it says depends on the microphone, see
+# `Interview.nudge`). Was 25 s: a long wait for someone who can't be heard.
+SILENCE_NUDGE_SECS = 10.0
+# A microphone that is off, muted, or sends no sound at all is named sooner.
+MIC_NUDGE_SECS = 5.0
+# The meeting page reports a microphone that sends complete silence (a dead
+# or blocked device; LiveKit checks it when the microphone starts) on this
+# data topic. It only picks which fixed line is said.
+MIC_TOPIC = "axom.mic"
 # The participant spoke for at least `MIN_MISSED_SPEECH_SECS` and no words
 # came out of it within this long: ask them to say it again.
 NO_WORDS_SECS = 3.0
 MIN_MISSED_SPEECH_SECS = 1.0
 # Lines said from audio made in advance, besides the questions.
 FIXED_LINES = (REASK, CLOSING, DECLINED, ENDED, CONFIRM_END, CONTINUE, REPEAT, STILL_HERE, CONSENT_ASK)
+# Said less often: made after the questions, so they never wait behind these.
+RARE_LINES = (ANSWER_YOURSELF, NO_ANSWER, MOVE_ON, NOT_HEARD, TAKE_YOUR_TIME, QUESTION_AGAIN, TAKE_A_MOMENT, *MIC_LINES.values())
+# Lines made in advance at once: some 30 together got "429 Too Many Requests"
+# from the speech provider (measured), which also delays live speech.
+PRESYNTH_AT_ONCE = 4
 
 
 @dataclasses.dataclass
@@ -187,6 +207,20 @@ def is_agent(p: rtc.RemoteParticipant) -> bool:
     return p.kind == rtc.ParticipantKind.PARTICIPANT_KIND_AGENT
 
 
+def mic_state(p, silent: bool = False) -> str | None:
+    """What the agent sees of a participant's microphone: "off" (none
+    published), "muted", "silent" (on, but the page reported it sends no
+    sound at all), "on", or None (nobody linked)."""
+    if p is None:
+        return None
+    mics = [pub for pub in p.track_publications.values() if pub.source == rtc.TrackSource.SOURCE_MICROPHONE]
+    if not mics:
+        return "off"
+    if all(pub.muted for pub in mics):
+        return "muted"
+    return "silent" if silent else "on"
+
+
 class Interviewer(Agent):
     def __init__(self, interview: Interview, questions: asyncio.Task | None = None, opening: asyncio.Task | None = None, tts=None) -> None:
         super().__init__(instructions="You are an AI interviewer. Speak only the lines you are given.")
@@ -203,6 +237,7 @@ class Interviewer(Agent):
         # questions once written), so they play with no speech round trip.
         self._tts = tts
         self._lines: dict[str, asyncio.Task] = {}
+        self._tts_slots = asyncio.Semaphore(PRESYNTH_AT_ONCE)
         self._acks = 0
         self._answer: Answer | None = None
         # When the participant started speaking (now), and when they first
@@ -210,6 +245,10 @@ class Interviewer(Agent):
         self._speech_started: float | None = None
         self._resumed_at: float | None = None
         self._closing_fallback: asyncio.Task | None = None
+        # The page reported the participant's microphone sends no sound;
+        # cleared as soon as they are heard.
+        self.mic_silent = False
+        self._mic_check: asyncio.Task | None = None
         # One turn is handled at a time.
         self._turn_lock = asyncio.Lock()
         if opening is not None:
@@ -220,16 +259,27 @@ class Interviewer(Agent):
         self._since = time.monotonic()
         if questions is not None:
             questions.add_done_callback(self._warm_questions)
+        else:
+            self._warm_rare()
 
     def _warm(self, text: str) -> None:
         if self._tts is not None and text and text not in self._lines:
-            self._lines[text] = asyncio.create_task(presynthesize(self._tts, text))
+            self._lines[text] = asyncio.create_task(self._presynthesize(text))
+
+    async def _presynthesize(self, text: str):
+        async with self._tts_slots:
+            return await presynthesize(self._tts, text)
+
+    def _warm_rare(self) -> None:
+        for line in RARE_LINES:
+            self._warm(line)
 
     def _warm_questions(self, task: asyncio.Task) -> None:
         if not task.cancelled() and task.exception() is None:
             log.info("meeting %s: questions written in %.1fs", self.interview.job.meeting_id, time.monotonic() - self._since)
             for q in task.result():
                 self._warm(q)
+        self._warm_rare()
 
     def _first_question_ready(self) -> bool:
         task = self._questions
@@ -283,6 +333,7 @@ class Interviewer(Agent):
         now = time.monotonic()
         if speaking:
             self._speech_started = now
+            self.mic_silent = False
             return
         started, self._speech_started = self._speech_started, None
         if started is not None and self._resumed_at is None and now - started >= MIN_RESUME_SECS:
@@ -380,10 +431,38 @@ class Interviewer(Agent):
         line is not heard either)."""
         if self._finished or not self.started or self._turn_lock.locked():
             return
-        reply = self.interview.nudge()
+        try:
+            if self.session.room_io.linked_participant is None:
+                return  # nobody in the room to hear it (they may be reconnecting)
+        except (AttributeError, RuntimeError):
+            pass
+        mic = self.mic()
+        reply = self.interview.nudge(mic)
         if reply.say:
-            log.info("meeting %s: nothing heard for %.0fs; asking again", self.interview.job.meeting_id, SILENCE_NUDGE_SECS)
+            log.info("meeting %s: nothing heard (microphone %s); saying so", self.interview.job.meeting_id, mic or "unknown")
             self._speak(reply)
+
+    def mic(self) -> str | None:
+        """The linked participant's microphone (`mic_state`)."""
+        try:
+            linked = self.session.room_io.linked_participant
+        except (AttributeError, RuntimeError):
+            return None
+        return mic_state(linked, self.mic_silent)
+
+    def check_mic_soon(self) -> None:
+        """The microphone may have a problem (muted, off, silent): if it
+        still has one in `MIC_NUDGE_SECS` and the interviewer is waiting for
+        an answer, say so then rather than after the full silence."""
+        if self._finished or not self.started or self.mic() not in MIC_LINES:
+            return
+        if self._mic_check is None or self._mic_check.done():
+            self._mic_check = asyncio.create_task(self._mic_check_after())
+
+    async def _mic_check_after(self) -> None:
+        await asyncio.sleep(MIC_NUDGE_SECS)
+        if self.mic() in MIC_LINES and getattr(self.session, "agent_state", "listening") == "listening":
+            await self.silent()
 
     async def no_words(self, speech_secs: float) -> None:
         """The participant spoke but no words came through (their sound is
@@ -541,6 +620,9 @@ async def entrypoint(ctx: JobContext) -> None:
 
     @session.on("agent_state_changed")
     def _speaking(ev) -> None:
+        if ev.new_state == "listening":
+            # Waiting for an answer: a microphone that can't be heard is said sooner.
+            interviewer.check_mic_soon()
         # The first time the interviewer is heard: how long the person waited.
         if ev.new_state == "speaking" and not getattr(_speaking, "done", False):
             _speaking.done = True
@@ -565,6 +647,31 @@ async def entrypoint(ctx: JobContext) -> None:
             spawn(interviewer.silent())
             return
         interviewer.user_speaking(ev.new_state == "speaking")
+
+    @ctx.room.on("track_muted")
+    def _muted(p, publication) -> None:
+        interviewer.check_mic_soon()
+
+    @ctx.room.on("track_unpublished")
+    def _unpublished(publication, p) -> None:
+        interviewer.check_mic_soon()
+
+    # Who pressed Leave (`LEAVE_TOPIC`), by identity.
+    leavers: set[str] = set()
+
+    @ctx.room.on("data_received")
+    def _data(packet: rtc.DataPacket) -> None:
+        if packet.topic == LEAVE_TOPIC and packet.participant and not is_agent(packet.participant):
+            leavers.add(packet.participant.identity)
+            return
+        # Only the person the interviewer is talking to, about their own microphone.
+        try:
+            linked = session.room_io.linked_participant
+        except RuntimeError:  # the session has not started yet
+            return
+        if packet.topic == MIC_TOPIC and packet.participant and linked and packet.participant.identity == linked.identity and packet.data == b"silent":
+            interviewer.mic_silent = True
+            interviewer.check_mic_soon()
 
     @session.on("user_transcription_timeout")
     def _no_words(ev) -> None:
@@ -629,7 +736,7 @@ async def entrypoint(ctx: JobContext) -> None:
             if rio and (linked is None or linked.identity == p.identity or linked.identity not in {o.identity for o in others}):
                 rio.set_participant(others[0].identity)
             return
-        if p.disconnect_reason in LEFT_ON_PURPOSE:
+        if left_on_purpose(p, leavers):
             # The last person pressed Leave: that ends the interview.
             asyncio.create_task(interviewer.end_call("the participant left"))
         elif empty["timer"] is None or empty["timer"].done():

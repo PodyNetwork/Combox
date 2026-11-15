@@ -13,6 +13,17 @@ import { API, Breakthrough, Kinetic, Notice, Wordmark } from "./ui.jsx";
 
 const loadRoom = () => import("./LiveRoom.jsx");
 const Room = lazy(loadRoom);
+// This tab was in the room with this invite: a reload goes straight back in
+// (the interviewer waits for a dropped connection), skipping the lobby. Per
+// tab, so a new tab or device still starts at the lobby.
+const IN_CALL = "axom.in-call";
+const store = (fn) => {
+  try {
+    return fn(window.sessionStorage);
+  } catch {
+    return null; // storage blocked: the lobby shows, as on a first visit
+  }
+};
 // Room tokens last 15 minutes; refresh before entering if this one is old.
 const STALE_MS = 10 * 60 * 1000;
 // A small camera picture: an interview needs a face, not HD, and the voice
@@ -73,6 +84,7 @@ export default function Join() {
   const [join, setJoin] = useState(null);
   const [error, setError] = useState(invite ? null : "This link is missing its invite token. Open the exact link from your invitation email.");
   const [entered, setEntered] = useState(false);
+  const [rejoining] = useState(() => !!invite && store((s) => s.getItem(IN_CALL)) === invite);
   const [refreshing, setRefreshing] = useState(false);
   const [left, setLeft] = useState(false);
   // The interviewer ended the call (it closes the room): the link no longer works.
@@ -97,6 +109,7 @@ export default function Join() {
     if (!r.ok) throw new Error(body.error || `Could not join (HTTP ${r.status})`);
     fetchedAt.current = Date.now();
     setJoin(body);
+    if (rejoining) setEntered(true);
     // Warm up the room connection while the person reads the lobby.
     loadRoom().then((m) => m.prepare(body.ws_url, body.token)).catch(() => {});
   };
@@ -125,6 +138,14 @@ export default function Join() {
     setEntered(true);
   };
 
+  useEffect(() => {
+    if (entered) store((s) => s.setItem(IN_CALL, invite));
+  }, [entered]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Over (left, ended, or the link no longer works): a reload shows why.
+  useEffect(() => {
+    if (left || ended || error) store((s) => s.removeItem(IN_CALL));
+  }, [left, ended, error]);
+
   const restart = () => {
     setConnError(null);
     setEntered(false);
@@ -142,6 +163,7 @@ export default function Join() {
   if (ended) return <Notice title="The interview has ended" text="Thanks for your time. The hiring team will follow up with you. You can close this tab; this link no longer works." />;
   // Leaving ends the interview (the interviewer closes it), so there is no rejoin.
   if (left) return <Notice title="You left the interview" text="Thanks for your time. Leaving ended the interview, so this link no longer works. You can close this tab." />;
+  if (!entered && rejoining) return <Notice title="Rejoining…" text="Taking you back to your interview." />;
   if (!entered)
     return (
       <Lobby
@@ -194,19 +216,19 @@ function Lobby({ join, busy, preview, note, video, audio, setVideo, setAudio, on
             <ul>
               <li>
                 <span className="dot" style={{ background: "rgb(139 108 255 / .18)", color: "var(--violet)" }}><Cpu size={16} variant="Bulk" color="currentColor" /></span>
-                <span><b>The interviewer is an AI agent</b>It will say so at the start. A person on the team reviews the summary.</span>
+                <span><b>An AI interviewer</b>A person on the team reviews the results.</span>
               </li>
               <li>
                 <span className="dot" style={{ background: "rgb(212 255 58 / .14)", color: "var(--lime)" }}><ShieldTick size={16} variant="Bulk" color="currentColor" /></span>
-                <span><b>Nothing is recorded without your yes</b>It asks for consent first. Say no and the interview ends, with no recording.</span>
+                <span><b>Recorded only if you say yes</b>Say no and it ends, unrecorded.</span>
               </li>
               <li>
                 <span className="dot" style={{ background: "rgb(255 181 71 / .14)", color: "var(--amber)" }}><MoneyRemove size={16} variant="Bulk" color="currentColor" /></span>
-                <span><b>It won't discuss pay</b>Rates are on the posting; offers come from a person.</span>
+                <span><b>No pay talk</b>Rates are on the posting.</span>
               </li>
               <li>
                 <span className="dot" style={{ background: "rgb(95 212 255 / .14)", color: "var(--sky)" }}><Clock size={16} variant="Bulk" color="currentColor" /></span>
-                <span><b>It takes {minutes} minutes</b>The interviewer wraps up at the time limit.{expires && ` This link expires at ${expires}.`}</span>
+                <span><b>{minutes} minutes</b>{expires ? `Link expires at ${expires}.` : "It ends at the time limit."}</span>
               </li>
             </ul>
           </div>

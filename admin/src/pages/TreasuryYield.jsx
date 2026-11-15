@@ -2,12 +2,10 @@
 // the signer keeps that much liquid (the floor, worked out step by step),
 // what it does next, the rules it follows, and every move it made.
 import { useEffect, useState } from "react";
-import { Addr, Badge, CountUp, Empty, ErrorNote, Icon, Loading, PageHead, Panel, PanelHead, ago, human, pctOf, useApp, usd, when } from "../ui.jsx";
+import { Addr, Badge, CountUp, ErrorNote, Icon, Loading, PageHead, Panel, PanelHead, ago, pctOf, useApp, usd } from "../ui.jsx";
+import { TxHistory } from "../components/TxHistory.jsx";
 import { StateDot, YieldSwitch, balancesOf, fmt, nearOf, pct, stateOf, useTreasuryYield } from "../components/TreasuryYield.jsx";
 
-const MOVE_TONE = { succeeded: "lime", submitted: "sky", failed: "ember" };
-const KIND = { register: "Registered on Rhea", supply: "Supplied", withdraw: "Withdrew", unwrap: "Unwrapped" };
-const KIND_ICON = { register: "key", supply: "arrow", withdraw: "out", unwrap: "check" };
 const CHECK_EVERY_SECS = 60;
 
 function useNow(ms = 1000) {
@@ -43,7 +41,7 @@ export default function TreasuryYieldPage() {
             <Floor data={data} className="lg:col-span-3" />
             <NextCheck data={data} state={state} className="lg:col-span-2" />
           </div>
-          <Moves data={data} />
+          <TxHistory scope="rhea" eyebrow="On chain" title="Moves" i={3} />
           <Footer data={data} />
         </div>
       )}
@@ -249,42 +247,6 @@ function Rule({ label, value }) {
       <p className="text-[11px] text-mute">{label}</p>
       <p className="num mt-0.5 text-sm font-medium">{value}</p>
     </div>
-  );
-}
-
-// ---------------------------------------------------------------- moves
-
-function Moves({ data }) {
-  const moves = data.moves || [];
-  return (
-    <Panel i={3} className="p-2 sm:p-3">
-      <PanelHead className="px-4 pt-4" eyebrow="On chain" title="Moves" action={<span className="pr-1 text-xs text-mute">last {moves.length || 0}</span>} />
-      {moves.length === 0 ? (
-        <div className="p-4"><Empty title="No moves yet" text="Registering, supplying, withdrawing and unwrapping each show up here with a NearBlocks link." /></div>
-      ) : (
-        <ul className="divide-y divide-white/7">
-          {moves.map((m) => (
-            <li key={m.id} className="flex items-start gap-4 px-4 py-3.5">
-              <span className="mt-0.5 grid shrink-0 place-items-center rounded-xl bg-white/5 size-9 text-mute">
-                <Icon name={KIND_ICON[m.kind] || "bolt"} size={16} className={m.kind === "withdraw" ? "" : m.kind === "supply" ? "-rotate-45" : ""} />
-              </span>
-              <span className="min-w-0 flex-1">
-                <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                  <span className="text-sm font-medium">{KIND[m.kind] || human(m.kind)} <span className="num">{fmt(m.amount_near, 4)}</span> NEAR</span>
-                  <Badge tone={MOVE_TONE[m.status] || "mute"} dot={m.status === "submitted"}>{human(m.status)}</Badge>
-                </span>
-                <span className="mt-0.5 block text-xs text-mute">{m.reason}</span>
-                {m.error && <span className="mt-1 block text-xs text-ember">{m.error}</span>}
-              </span>
-              <a href={m.explorer_url} target="_blank" rel="noreferrer noopener" className="shrink-0 text-right text-xs text-mute hover:text-fog" title={`${when(m.created_at)} · ${m.tx_hash}`}>
-                <span className="inline-flex items-center gap-1">{ago(m.created_at)} <Icon name="external" size={12} /></span>
-                <span className="mt-0.5 hidden font-mono text-[10px] text-dim sm:block">{m.tx_hash?.slice(0, 8)}…</span>
-              </a>
-            </li>
-          ))}
-        </ul>
-      )}
-    </Panel>
   );
 }
 

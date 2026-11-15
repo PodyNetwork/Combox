@@ -61,7 +61,7 @@ async fn stand_in(account: &'static str, network: &'static str) -> String {
 fn app(pool: &PgPool, source: Option<TreasurySource>, network: &str, rpc_url: String) -> Router {
     let p = policy();
     let approvals = ApprovalConfig { auth: AuthConfig::hs256(SECRET), policy: Arc::new(p), approval_key: Arc::new(AuthorizationKey::generate()) };
-    let treasury = TreasuryConfig { source, network: network.into(), rpc_url };
+    let treasury = TreasuryConfig { source, network: network.into(), rpc_url, tx_api_url: "http://127.0.0.1:1".into() };
     router(AppState { approvals: Some(approvals), treasury, ..AppState::new(pool.clone()) })
 }
 

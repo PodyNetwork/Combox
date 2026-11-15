@@ -92,6 +92,9 @@ services:
           use_external_ip: false
         room:
           empty_timeout: 600
+          # Kept 150 s after the last person leaves (default 20 s): the
+          # interviewer waits 120 s for a reload or dropped connection.
+          departure_timeout: 150
           max_participants: 10
     ports: ["127.0.0.1:7880:7880", "127.0.0.1:7881:7881", "127.0.0.1:7882:7882/udp"]
     restart: unless-stopped

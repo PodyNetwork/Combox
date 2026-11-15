@@ -17,6 +17,7 @@ import Hiring from "./pages/Hiring.jsx";
 import Approvals from "./pages/Approvals.jsx";
 import Spending from "./pages/Spending.jsx";
 import TreasuryYield from "./pages/TreasuryYield.jsx";
+import Wallet from "./pages/Wallet.jsx";
 import Activity from "./pages/Activity.jsx";
 import AgentLog from "./pages/AgentLog.jsx";
 import Tools from "./pages/Tools.jsx";
@@ -35,6 +36,7 @@ const PAGES = [
   { id: "hiring", label: "Hiring", icon: "hiring", el: Hiring, group: "Company" },
   { id: "approvals", label: "Payroll", icon: "payroll", el: Approvals, group: "Company" },
   { id: "spending", label: "Monthly cap", icon: "cap", el: Spending, group: "Company" },
+  { id: "wallet", label: "Wallet", icon: "wallet", el: Wallet, group: "Company" },
   { id: "yield", label: "Treasury yield", icon: "yield", el: TreasuryYield, group: "Company" },
   { id: "agent-log", label: "Agent log", icon: "bolt", el: AgentLog, group: "Company" },
   { id: "activity", label: "Feed", icon: "feed", el: Activity, group: "Company" },

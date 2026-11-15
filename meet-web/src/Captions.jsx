@@ -1,6 +1,7 @@
 // Meet-style live captions under the participant tiles, plus the call
 // control bar, used in the LiveKit room.
-import { CallSlash, Cpu, Microphone2, MicrophoneSlash1, Subtitle, Video, VideoSlash } from "iconsax-react";
+import { useEffect, useRef, useState } from "react";
+import { CallSlash, CloseCircle, Cpu, Danger, Microphone2, MicrophoneSlash1, ShieldTick, Subtitle, Video, VideoSlash, Warning2 } from "iconsax-react";
 import { Orb } from "./ui.jsx";
 
 export const initials = (name = "?") =>
@@ -73,6 +74,65 @@ export function ControlBar({ mic, cam, cc, onMic, onCam, onCc, onLeave }) {
       <button className="round leave" onClick={onLeave}>
         <CallSlash size={20} variant="Bold" color="currentColor" /> Leave
       </button>
+    </div>
+  );
+}
+
+// Problems the person may need to fix (a blocked device, a microphone that
+// sends no sound, a weak connection): one caution button with a count over
+// the corner of the stage, and the list when it is tapped. Nothing shows
+// while there are none, and it never moves the layout.
+// issues: [{ id, text, dismiss? }]
+export function Alerts({ issues }) {
+  const [open, setOpen] = useState(false);
+  const box = useRef(null);
+  const n = issues.length;
+  useEffect(() => {
+    if (!n) setOpen(false);
+  }, [n]);
+  useEffect(() => {
+    if (!open) return;
+    const away = (e) => box.current && !box.current.contains(e.target) && setOpen(false);
+    const esc = (e) => e.key === "Escape" && setOpen(false);
+    document.addEventListener("pointerdown", away);
+    document.addEventListener("keydown", esc);
+    return () => {
+      document.removeEventListener("pointerdown", away);
+      document.removeEventListener("keydown", esc);
+    };
+  }, [open]);
+  return (
+    <div className="alerts" ref={box}>
+      {/* Read out when the count changes, without opening anything. */}
+      <span className="sr-only" aria-live="polite">{n ? `${n} ${n === 1 ? "issue" : "issues"} need your attention` : ""}</span>
+      {/* Nothing wrong: a green all-clear in the same spot, so the slot
+          is never an empty gap in the bar. */}
+      {n === 0 && (
+        <span className="alert-clear" role="img" aria-label="No issues" title="All clear: camera, microphone and connection are fine">
+          <ShieldTick size={18} variant="Bulk" color="currentColor" />
+        </span>
+      )}
+      {n > 0 && (
+        <button className="alert-btn" aria-expanded={open} aria-label={`${n} ${n === 1 ? "issue" : "issues"}: show`} onClick={() => setOpen(!open)}>
+          <Warning2 size={18} variant="Bold" color="currentColor" />
+          <span className="alert-count" aria-hidden="true">{n}</span>
+        </button>
+      )}
+      {open && n > 0 && (
+        <div className="alert-pop" role="dialog" aria-label="Issues">
+          {issues.map((i) => (
+            <p key={i.id} className="alert-item">
+              <Danger size={16} variant="Bold" color="currentColor" />
+              <span>{i.text}</span>
+              {i.dismiss && (
+                <button onClick={i.dismiss} aria-label="Dismiss">
+                  <CloseCircle size={16} variant="Linear" color="currentColor" />
+                </button>
+              )}
+            </p>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

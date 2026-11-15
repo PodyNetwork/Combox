@@ -37,6 +37,9 @@ pub struct TreasuryConfig {
     /// `testnet` or `mainnet` (`NEAR_NETWORK`; testnet unless set to mainnet).
     pub network: String,
     pub rpc_url: String,
+    /// FastNEAR's transactions API, for the deposits in the wallet history
+    /// (`NEAR_TX_API_URL`; `https://tx.<test|main>.fastnear.com` unless set).
+    pub tx_api_url: String,
 }
 
 fn env(k: &str) -> Option<String> {
@@ -53,7 +56,8 @@ impl TreasuryConfig {
     pub fn with_source(source: Option<TreasurySource>) -> Self {
         let network = if env("NEAR_NETWORK").as_deref() == Some("mainnet") { "mainnet" } else { "testnet" };
         let rpc_url = env("NEAR_RPC_URL").unwrap_or_else(|| format!("https://rpc.{network}.fastnear.com"));
-        Self { source, network: network.into(), rpc_url }
+        let tx_api_url = env("NEAR_TX_API_URL").unwrap_or_else(|| format!("https://tx.{}.fastnear.com", if network == "mainnet" { "main" } else { "test" }));
+        Self { source, network: network.into(), rpc_url, tx_api_url }
     }
 }
 
@@ -108,6 +112,16 @@ async fn signer_account(base: &str, network: &str) -> Result<String, String> {
 }
 const SIGNER_FRESH: Duration = Duration::from_secs(10 * 60);
 
+/// The treasury account: None when no treasury is set up, an error when the
+/// signer can't say (or is on another network).
+pub(crate) async fn account_of(t: &TreasuryConfig) -> Result<Option<String>, String> {
+    match &t.source {
+        None => Ok(None),
+        Some(TreasurySource::Account(a)) => Ok(Some(a.clone())),
+        Some(TreasurySource::Signer(url)) => signer_account(url, &t.network).await.map(Some),
+    }
+}
+
 /// `GET /admin/treasury`: MFA-verified admins only.
 pub async fn treasury(State(s): State<AppState>, headers: HeaderMap) -> Response {
     if let Err(r) = mfa_admin(&s, &headers).await {
@@ -123,16 +137,13 @@ pub async fn treasury(State(s): State<AppState>, headers: HeaderMap) -> Response
         "balance": null,
         "error": null,
     });
-    let account = match &t.source {
-        None => return reply(StatusCode::OK, v),
-        Some(TreasurySource::Account(a)) => a.clone(),
-        Some(TreasurySource::Signer(url)) => match signer_account(url, &t.network).await {
-            Ok(a) => a,
-            Err(e) => {
-                v["error"] = json!(e);
-                return reply(StatusCode::OK, v);
-            }
-        },
+    let account = match account_of(t).await {
+        Ok(Some(a)) => a,
+        Ok(None) => return reply(StatusCode::OK, v),
+        Err(e) => {
+            v["error"] = json!(e);
+            return reply(StatusCode::OK, v);
+        }
     };
     v["explorer_url"] = json!(explorer_url(&t.network, &account));
     v["account"] = json!(account);

@@ -4,15 +4,15 @@
 import { useEffect, useRef, useState } from "react";
 import { Badge, Button, CopyBlock, ErrorNote, Eyebrow, Icon, Loading, Modal, Panel, PanelHead, useApp, useLoad, useToast } from "../ui.jsx";
 
-const NET = {
+export const NET = {
   mainnet: { label: "NEAR mainnet", tone: "lime" },
   testnet: { label: "NEAR testnet", tone: "amber" },
 };
 const LINK = "inline-flex items-center gap-1 text-xs text-mute transition hover:text-fog";
 
 // "12.49818" -> "12.4982"; the exact value is in the title.
-const near = (s, digits = 4) => Number(s).toLocaleString(undefined, { maximumFractionDigits: digits });
-const dollars = (s) => Number(s).toLocaleString(undefined, { style: "currency", currency: "USD" });
+export const near = (s, digits = 4) => Number(s).toLocaleString(undefined, { maximumFractionDigits: digits });
+export const dollars = (s) => Number(s).toLocaleString(undefined, { style: "currency", currency: "USD" });
 // A 64-character implicit account reads better as its ends; names stay whole.
 const shortAccount = (a) => (a.length > 24 ? `${a.slice(0, 6)}…${a.slice(-6)}` : a);
 
@@ -32,6 +32,7 @@ export function TreasuryCard({ i = 0, className = "" }) {
         isPlatform={isPlatform}
         onSettings={() => navigate("settings")}
         onDeposit={() => setDepositing(true)}
+        onWallet={() => navigate("wallet")}
       />
       {depositing && data?.account && <DepositDialog treasury={data} onClose={() => setDepositing(false)} onCheck={reload} />}
     </>
@@ -39,7 +40,7 @@ export function TreasuryCard({ i = 0, className = "" }) {
 }
 
 /** The card itself, from the /admin/treasury answer. */
-export function TreasuryPanel({ i = 0, className = "", data, error, isPlatform, onSettings, onDeposit }) {
+export function TreasuryPanel({ i = 0, className = "", data, error, isPlatform, onSettings, onDeposit, onWallet }) {
   const net = NET[data?.network] ?? NET.testnet;
   const b = data?.balance;
   const usd = b?.usd;
@@ -69,6 +70,11 @@ export function TreasuryPanel({ i = 0, className = "", data, error, isPlatform, 
           )}
           {b && !b.on_chain && <p className="mt-2 text-xs text-mute">Empty. The account appears on NEAR with its first deposit.</p>}
           {data.error && <p className="mt-2 text-xs text-amber first-letter:uppercase">{data.error}</p>}
+          {onWallet && (
+            <button type="button" onClick={onWallet} className={`${LINK} mt-4 self-start`}>
+              Wallet and history <Icon name="arrow" size={12} />
+            </button>
+          )}
         </>
       )}
       {data && (
@@ -115,7 +121,7 @@ function AccountChip({ account, explorer }) {
   );
 }
 
-function NotConnected({ data, isPlatform, onSettings }) {
+export function NotConnected({ data, isPlatform, onSettings }) {
   if (data.error) return <p className="rounded-xl bg-amber/10 px-3 py-2 text-sm text-amber ring-1 ring-amber/30 first-letter:uppercase">{data.error}</p>;
   if (isPlatform)
     return (

@@ -122,6 +122,8 @@ class Checkpoint:
     timed_out: bool
     asked: str | None = None
     confirming_end: bool = False
+    non_answers: int = 0
+    held: str | None = None
 
 
 DEFAULT_DURATION_SECS = 600
@@ -151,8 +153,25 @@ CONTINUE = "Okay, let's continue."
 REPEAT = "Of course."
 STILL_HERE = "Yes, I can hear you."
 CONSENT_ASK = "Do you consent to this interview being recorded? Please say yes or no."
-NOT_HEARD = "I haven't heard anything from you yet. If you're speaking, please check that your microphone is on."
+# Said after a silence (`nudge`). What is said depends on what the agent can
+# see of the participant's microphone: never "check your microphone" when it
+# is on and has already been heard.
+NOT_HEARD = "I haven't heard anything from you yet. If you're speaking, your sound isn't reaching me: try turning your microphone off and on again."
+MIC_LINES = {
+    "off": "I can't hear you because your microphone is off. Tap the microphone button at the bottom of your screen to turn it on.",
+    "muted": "I can't hear you because your microphone is muted. Tap the microphone button at the bottom of your screen to unmute it.",
+    "silent": "I can't hear you: no sound is coming from your microphone. Check that it's connected and selected in your device's sound settings, then turn it off and on again.",
+}
+TAKE_YOUR_TIME = "Take your time, I'm listening."
+QUESTION_AGAIN = "Here's the question again."
 MISSED = "Sorry, I didn't catch that. Could you say it again?"
+# Said before the question again when the participant gives no answer
+# (`guards.non_answer`); a second one in a row moves on instead.
+ANSWER_YOURSELF = "I can't answer it for you: I'd like to hear your own approach, in your own words. Take your time."
+NO_ANSWER = "That's okay. Even a rough idea helps; if you have none, just say so and we'll move on."
+MOVE_ON = "Okay, let's move on."
+# The participant asked for a moment (`guards.asks_for_time`).
+TAKE_A_MOMENT = "Sure, take your time."
 # How often a silence is met with the question again before the interviewer just waits.
 MAX_NUDGES = 2
 # A reply to "would you like to end the interview now?" this short that is
@@ -238,6 +257,11 @@ class Interview:
     # "Would you like to end the interview now?" was just asked.
     _confirming_end: bool = False
     _nudges: int = 0
+    # Non-answers in a row to the question waiting for an answer.
+    _non_answers: int = 0
+    # What they said when asking for a moment ("Hold on. It"), joined to the
+    # answer that follows.
+    _held: str | None = None
 
     # -- speaking -----------------------------------------------------------
     def _agent(self, text: str) -> str:
@@ -272,13 +296,23 @@ class Interview:
         self._agent(f"{lead} {line}")
         return Reply(line, lead=lead)
 
-    def nudge(self) -> Reply:
-        """Nothing was heard for a while after a question: the participant may
-        be muted, or their sound is not arriving. Say so and ask again, a
-        couple of times at most."""
+    def nudge(self, mic: str | None = None) -> Reply:
+        """Nothing was heard for a while after a question, a couple of times
+        at most. `mic` is what the agent sees of the participant's
+        microphone: "off", "muted", "silent" (it sends no sound at all), "on",
+        or None (unknown). A microphone problem is named; a participant who
+        has been heard before and has a working microphone is thinking, so
+        they get time, and the question again the second time; one never
+        heard at all may not be reaching the interviewer."""
         if self.state not in ("awaiting_consent", "questions") or self._nudges >= MAX_NUDGES:
             return Reply(None)
         self._nudges += 1
+        if mic in MIC_LINES:
+            return self._again(MIC_LINES[mic], short=True)
+        if any(t.speaker == "participant" for t in self.transcript):
+            if self._nudges == 1:
+                return Reply(self._agent(TAKE_YOUR_TIME))
+            return self._again(QUESTION_AGAIN)
         return self._again(NOT_HEARD, short=True)
 
     def missed(self) -> Reply:
@@ -357,6 +391,17 @@ class Interview:
             return self._confirm_end()
         if kind := guards.repeat_request(text):
             return self._again(STILL_HERE if kind == "check" else REPEAT)
+        if self.state == "questions" and not self.wrapping_up():
+            if guards.asks_for_time(text):
+                # Wait for the answer; say so once.
+                first = self._held is None
+                self._held = f"{self._held} {text}" if self._held else text
+                return Reply(self._agent(TAKE_A_MOMENT) if first else None)
+            if kind := guards.non_answer(text):
+                self._held = None
+                return self._non_answer(kind)
+        if self._held is not None and self.state == "questions":
+            text, self._held = f"{self._held} {text}", None
         if self.state == "awaiting_consent":
             return self._consent(text)
         if self.state == "questions":
@@ -379,7 +424,7 @@ class Interview:
         return self._confirming_end or guards.end_intent(text) is not None or guards.repeat_request(text) is not None
 
     def checkpoint(self) -> Checkpoint:
-        return Checkpoint(self.state, self._q, self._followed_up, len(self.transcript), self.timed_out, self._asked, self._confirming_end)
+        return Checkpoint(self.state, self._q, self._followed_up, len(self.transcript), self.timed_out, self._asked, self._confirming_end, self._non_answers, self._held)
 
     def rewind(self, cp: Checkpoint) -> None:
         """Take back an answer and the reply to it, when the participant turns
@@ -388,7 +433,7 @@ class Interview:
         back; consent, once recorded, is final."""
         assert cp.state == "questions" and self.ended_by is None, "only an answer to a question can be taken back"
         self.state, self._q, self._followed_up, self.timed_out = cp.state, cp.q, cp.followed_up, cp.timed_out
-        self._asked, self._confirming_end = cp.asked, cp.confirming_end
+        self._asked, self._confirming_end, self._non_answers, self._held = cp.asked, cp.confirming_end, cp.non_answers, cp.held
         del self.transcript[cp.turns :]
 
     # -- consent -------------------------------------------------------------
@@ -409,9 +454,14 @@ class Interview:
             self.job.questions = list(self.job.fallback_questions) or list(GENERIC_QUESTIONS)
         return self._ask(self.job.questions[0])
 
-    def _ask(self, question: str) -> Reply:
+    def _ask(self, question: str, lead: str | None = None) -> Reply:
         self._asked = question
-        return Reply(self._agent(question))
+        self._non_answers = 0
+        self._held = None
+        if lead is None:
+            return Reply(self._agent(question))
+        self._agent(f"{lead} {question}")
+        return Reply(question, lead=lead)
 
     def _no_consent(self, statement: str) -> None:
         """The call ended before consent was given: record that once, so
@@ -436,26 +486,41 @@ class Interview:
             if follow:
                 self._followed_up = True
                 return self._ask(follow)
+        return self._next_question()
+
+    def _next_question(self, lead: str | None = None) -> Reply:
         self._q += 1
         self._followed_up = False
         if self._q >= len(self.job.questions):
             self.state = "done"
             return Reply(self._agent(CLOSING), done=True)
-        return self._ask(self.job.questions[self._q])
+        return self._ask(self.job.questions[self._q], lead)
+
+    def _non_answer(self, kind: str) -> Reply:
+        """No answer was given ("can you answer it for me?", "I don't know"):
+        the question once more, never a follow-up and never the interviewer
+        answering it; a second one in a row moves on."""
+        if self._non_answers:
+            return self._next_question(MOVE_ON)
+        self._non_answers += 1
+        return self._again(ANSWER_YOURSELF if kind == "for_me" else NO_ANSWER)
 
     def will_think(self, text: str | None = None) -> bool:
         """The next answer (`text`, if given) goes to the model for a possible
         follow-up (the participant would otherwise wait on it in silence)."""
-        if text is not None and (self.is_request(text) or guards.mentions_pay_or_terms(text)):
+        if text is not None and (self.is_request(text) or guards.mentions_pay_or_terms(text) or guards.non_answer(text) or guards.asks_for_time(text)):
             return False
         return self.state == "questions" and not self._followed_up and self.llm is not None and not self.wrapping_up() and self.remaining() > 0
 
     def _generate_follow_up(self, answer: str) -> str | None:
         system = (
-            "You are a structured job interviewer. Ask at most one short, job-related follow-up question "
-            "about the candidate's last answer, or reply NONE. Never discuss pay, offers, or terms; never "
-            "make commitments; never ask about age, gender, race, nationality, religion, disability, family, "
-            "or other protected characteristics. Output only the question or NONE."
+            "You are a structured job interviewer, speaking to the candidate. Ask at most one short, job-related "
+            "follow-up question about their last answer, or reply NONE. Your output is read aloud to them as it is: "
+            "speak to them directly as you, ask about one thing only, in one sentence of at most 25 words, and "
+            "never describe or judge their answer or explain why you ask. If the answer does not address the "
+            "question, reply NONE. Never discuss pay, offers, or terms; never make commitments; never ask about "
+            "age, gender, race, nationality, religion, disability, family, or other protected characteristics. "
+            "Output only the question or NONE."
         )
         prompt = (
             f"Role context (trusted): {self.job.instructions}\n"

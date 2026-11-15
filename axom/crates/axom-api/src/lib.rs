@@ -33,6 +33,7 @@ pub mod jobs;
 pub mod mcp;
 pub mod meetings;
 pub mod treasury;
+pub mod wallet;
 
 /// Dashboard approval configuration. Without it, approval endpoints return 503.
 #[derive(Clone)]
@@ -159,6 +160,7 @@ pub fn routes(state: AppState) -> Router {
         .route("/admin/meetings/{id}/recipients", post(admin::add_recipient))
         .route("/admin/treasury", get(treasury::treasury))
         .route("/admin/treasury/yield", get(treasury::treasury_yield))
+        .route("/admin/treasury/transactions", get(wallet::transactions))
         .route("/admin/cap", get(admin::cap_meter).post(admin::change_cap))
         .route("/admin/notifications", get(admin::feed))
         .route("/admin/agent-log", get(admin::agent_log))

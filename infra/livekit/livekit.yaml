@@ -14,6 +14,10 @@ turn:
   key_file: /etc/turn-tls/tls.key
 room:
   empty_timeout: 600
+  # After the last person leaves, the room stays this long (the default is
+  # 20 s, and an AI agent alone does not keep it): the interviewer waits 120 s
+  # for someone whose page reloaded or connection dropped.
+  departure_timeout: 150
   max_participants: 10
 logging:
   level: info
